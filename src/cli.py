@@ -290,7 +290,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         anthropic_api_key=api_key,
         output_dir=Path(args.output),
         max_retries=args.retries,
-        max_budget_usd=float(getattr(args, "budget", 10.0) or 10.0),
+        max_budget_usd=float(getattr(args, "budget", 20.0) or 20.0),
         verbose=args.verbose,
     )
 
@@ -309,7 +309,7 @@ def cmd_direct(args: argparse.Namespace) -> int:
         anthropic_api_key=api_key,
         output_dir=Path(args.output_dir) if args.output_dir else DELIVERABLES_DIR,
         max_retries=int(args.max_retries or 3),
-        max_budget_usd=float(args.budget or 10.0),
+        max_budget_usd=float(args.budget or 20.0),
         verbose=args.verbose,
     )
     return _run_pipeline_from_config(cfg, resume_from=args.resume_from, replay=args.replay)
@@ -375,16 +375,18 @@ def _run_pipeline_from_config(
     if not replay:
         from .agent_runner import AgentRunner
         from .agent_loop import MCP_TOOLS, SkillToolDispatcher, build_system_prompt_skills_section
+        from .artifact_store import ArtifactStore
         from .skills.skill_loader import SkillRegistry as SR
 
+        artifact_store = ArtifactStore()
         registry = SR()
-        dispatcher = SkillToolDispatcher(registry)
+        dispatcher = SkillToolDispatcher(registry, artifact_store=artifact_store)
         system_prompt = build_system_prompt_skills_section(registry)
 
         runner = AgentRunner(
             api_key=cfg.anthropic_api_key,
             max_budget_usd=cfg.max_budget_usd,
-            max_agent_budget_usd=4.0,
+            max_agent_budget_usd=8.00,
             stop_event=stop_event,
             tools=MCP_TOOLS,
             tool_dispatcher=dispatcher,
@@ -450,8 +452,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Output directory (default: deliverables/)")
     parser.add_argument("--max-retries", type=int, default=3,
                         help="Max retries per phase (default: 3)")
-    parser.add_argument("--budget", type=float, default=10.0,
-                        help="Max API budget in USD (default: 10.0)")
+    parser.add_argument("--budget", type=float, default=20.0,
+                        help="Max API budget in USD (default: 20.0)")
     parser.add_argument("--resume-from",
                         choices=["recon", "analysis", "exploit", "report"],
                         help="Resume pipeline from a specific phase")
@@ -501,8 +503,8 @@ def build_parser() -> argparse.ArgumentParser:
                              help="Output directory for deliverables")
     sp_pipeline.add_argument("--retries", type=int, default=3,
                              help="Max retries per phase (default: 3)")
-    sp_pipeline.add_argument("--budget", type=float, default=10.0,
-                             help="Max API budget in USD (default: 10.0)")
+    sp_pipeline.add_argument("--budget", type=float, default=20.0,
+                             help="Max API budget in USD (default: 20.0)")
     sp_pipeline.add_argument("--resume-from",
                              choices=["recon", "analysis", "exploit", "report"],
                              help="Resume from a specific phase")

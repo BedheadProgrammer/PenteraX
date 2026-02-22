@@ -23,13 +23,18 @@ import sys
 def _check_target_url_consistency(content: str) -> list[str]:
     """Warn if deliverable references localhost / 127.0.0.1 instead of the AWS target."""
     errors: list[str] = []
+    # Strip fenced code blocks — evidence/proof blocks legitimately
+    # reference localhost (e.g., SSRF payloads).
+    narrative = re.sub(r"```.*?```", "", content, flags=re.DOTALL)
+    # Also strip inline code
+    narrative = re.sub(r"`[^`]+`", "", narrative)
     localhost_patterns = [
         r"https?://localhost[:/]",
         r"https?://127\.0\.0\.1[:/]",
         r"https?://\[::1\][:/]",
     ]
     for pat in localhost_patterns:
-        matches = re.findall(pat, content, re.IGNORECASE)
+        matches = re.findall(pat, narrative, re.IGNORECASE)
         if matches:
             errors.append(
                 f"Deliverable references localhost ({matches[0]}). "
@@ -302,7 +307,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        with open(deliverable_path, "r") as f:
+        with open(deliverable_path, "r", encoding="utf-8") as f:
             content = f.read()
     except FileNotFoundError:
         result = {

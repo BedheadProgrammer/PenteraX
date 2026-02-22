@@ -483,6 +483,7 @@ def run_http_request(
     body: str | None = None,
     timeout: int = 30,
     max_response_bytes: int = 10_000,
+    file_upload: dict[str, str] | None = None,
 ) -> SkillResult:
     """Send an HTTP request and return the response.
 
@@ -497,6 +498,10 @@ def run_http_request(
         body: Optional request body (string — typically JSON).
         timeout: Request timeout in seconds.
         max_response_bytes: Maximum bytes of response body to return.
+        file_upload: Optional dict for multipart/form-data file upload.
+            Keys: ``field`` (form field name), ``filename`` (upload filename),
+            ``content`` (file content as string),
+            ``content_type`` (MIME type, default ``application/octet-stream``).
 
     Returns:
         SkillResult with ``output`` containing status_code, headers, body, elapsed.
@@ -507,10 +512,31 @@ def run_http_request(
     import urllib.parse
 
     start = time.monotonic()
-    req_headers = headers or {}
+    req_headers = dict(headers) if headers else {}
 
     try:
-        data_bytes = body.encode("utf-8") if body else None
+        # --- multipart/form-data handling ---
+        if file_upload:
+            import uuid
+            boundary = f"----PenteraXBoundary{uuid.uuid4().hex[:12]}"
+            field = file_upload.get("field", "file")
+            filename = file_upload.get("filename", "upload.bin")
+            content = file_upload.get("content", "")
+            content_type = file_upload.get("content_type", "application/octet-stream")
+
+            parts: list[bytes] = []
+            parts.append(f"--{boundary}\r\n".encode())
+            parts.append(
+                f'Content-Disposition: form-data; name="{field}"; filename="{filename}"\r\n'.encode()
+            )
+            parts.append(f"Content-Type: {content_type}\r\n\r\n".encode())
+            parts.append(content.encode("utf-8") if isinstance(content, str) else content)
+            parts.append(f"\r\n--{boundary}--\r\n".encode())
+            data_bytes = b"".join(parts)
+            req_headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        else:
+            data_bytes = body.encode("utf-8") if body else None
+
         req = urllib.request.Request(
             url,
             data=data_bytes,

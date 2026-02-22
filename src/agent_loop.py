@@ -37,8 +37,10 @@ from .skills.playwright_bridge import (
     handle_browser_screenshot,
     handle_browser_evaluate,
     handle_browser_network_requests,
+    handle_browser_set_auth,
     PlaywrightManager,
 )
+from .artifact_store import ArtifactStore
 from .pipeline import save_deliverable, DELIVERABLES_DIR
 
 logger = logging.getLogger("spaider.agent_loop")
@@ -286,6 +288,35 @@ MCP_TOOLS: list[dict[str, Any]] = [
                     "description": "Timeout in seconds (default: 30).",
                     "default": 30,
                 },
+                "file_upload": {
+                    "type": "object",
+                    "description": (
+                        "For multipart/form-data file upload. Provide field name, "
+                        "filename, content (string), and content_type. When set, "
+                        "the request is sent as multipart/form-data instead of raw body. "
+                        "Example: {\"field\": \"file\", \"filename\": \"evil.xml\", "
+                        "\"content\": \"<?xml ...>\", \"content_type\": \"application/xml\"}"
+                    ),
+                    "properties": {
+                        "field": {
+                            "type": "string",
+                            "description": "Form field name (default: file).",
+                        },
+                        "filename": {
+                            "type": "string",
+                            "description": "Upload filename.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "File content as a string.",
+                        },
+                        "content_type": {
+                            "type": "string",
+                            "description": "MIME type (default: application/octet-stream).",
+                        },
+                    },
+                    "required": ["field", "filename", "content"],
+                },
             },
             "required": ["url"],
         },
@@ -435,6 +466,95 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "properties": {},
         },
     },
+    {
+        "name": "browser_set_auth",
+        "description": (
+            "Inject an Authorization JWT token into the browser context. "
+            "All subsequent browser_navigate calls will include this token. "
+            "Also sets the token in localStorage so Angular SPAs pick it up. "
+            "Use this AFTER obtaining a JWT via http_request login."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "token": {
+                    "type": "string",
+                    "description": "JWT token (without 'Bearer ' prefix).",
+                },
+            },
+            "required": ["token"],
+        },
+    },
+    # -- Artifact Store tools (cross-agent sharing) -------------------------
+    {
+        "name": "store_artifact",
+        "description": (
+            "Store a named artifact (JWT token, extracted data, credentials, etc.) "
+            "so that OTHER parallel exploit agents can retrieve it. Use this to "
+            "share JWTs, cookies, user IDs, and any data needed across phases. "
+            "Example keys: 'admin_jwt', 'jim_jwt', 'bender_jwt', 'user_ids'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Artifact name (e.g. 'admin_jwt', 'jim_jwt', 'extracted_hashes').",
+                },
+                "value": {
+                    "type": "string",
+                    "description": "Artifact value (JWT string, JSON blob, etc.).",
+                },
+            },
+            "required": ["key", "value"],
+        },
+    },
+    {
+        "name": "get_artifact",
+        "description": (
+            "Retrieve a previously stored artifact by name. Returns the value "
+            "if found, or null if no artifact with that key exists. Also supports "
+            "key='*' to list all available artifact keys. Use this to retrieve "
+            "JWTs stored by other agents (e.g. auth agent stores admin JWT, "
+            "authz agent retrieves it)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "description": "Artifact name to retrieve, or '*' to list all keys.",
+                },
+            },
+            "required": ["key"],
+        },
+    },
+    {
+        "name": "check_challenge_status",
+        "description": (
+            "Check the Juice Shop scoreboard to see which challenges are solved. "
+            "Call this AFTER each exploit attempt to verify the challenge was "
+            "actually completed. Returns solved/unsolved status. Optionally filter "
+            "by challenge name substring."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_url": {
+                    "type": "string",
+                    "description": "Juice Shop base URL (e.g. http://host:3000).",
+                },
+                "challenge_name": {
+                    "type": "string",
+                    "description": (
+                        "Optional: substring to filter challenges by name "
+                        "(e.g. 'XSS', 'Login', 'Admin'). Omit to get full summary."
+                    ),
+                },
+            },
+            "required": ["target_url"],
+        },
+    },
 ]
 
 
@@ -455,8 +575,14 @@ class SkillToolDispatcher:
                                      {"product": "express", "version": "4.17.1"})
     """
 
-    def __init__(self, registry: SkillRegistry, use_playwright: bool = True):
+    def __init__(
+        self,
+        registry: SkillRegistry,
+        use_playwright: bool = True,
+        artifact_store: ArtifactStore | None = None,
+    ):
         self.registry = registry
+        self._artifact_store = artifact_store or ArtifactStore()
         self._handlers: dict[str, Callable[..., dict[str, Any]]] = {
             "network_recon_parse_nmap": self._handle_parse_nmap,
             "network_recon_run_nmap": self._handle_run_nmap,
@@ -475,7 +601,13 @@ class SkillToolDispatcher:
                 "browser_screenshot": self._handle_browser_screenshot,
                 "browser_evaluate": self._handle_browser_evaluate,
                 "browser_network_requests": self._handle_browser_network_requests,
+                "browser_set_auth": self._handle_browser_set_auth,
             })
+        # Artifact store tools are always available
+        self._handlers["store_artifact"] = self._handle_store_artifact
+        self._handlers["get_artifact"] = self._handle_get_artifact
+        # Challenge verification tool
+        self._handlers["check_challenge_status"] = self._handle_check_challenge_status
 
     @property
     def tool_names(self) -> list[str]:
@@ -611,6 +743,7 @@ class SkillToolDispatcher:
         headers: dict[str, str] | None = None,
         body: str | None = None,
         timeout: int = 30,
+        file_upload: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         result = run_http_request(
             url=url,
@@ -618,6 +751,7 @@ class SkillToolDispatcher:
             headers=headers,
             body=body,
             timeout=timeout,
+            file_upload=file_upload,
         )
         return self._skill_result_to_dict(result)
 
@@ -652,6 +786,101 @@ class SkillToolDispatcher:
 
     def _handle_browser_network_requests(self, **kwargs) -> dict[str, Any]:
         return handle_browser_network_requests(**kwargs)
+
+    def _handle_browser_set_auth(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_set_auth(**kwargs)
+
+    # -- Artifact Store handlers ------------------------------------------ #
+
+    def _handle_store_artifact(self, key: str, value: str, **kwargs: Any) -> dict[str, Any]:
+        """Store an artifact for cross-agent sharing."""
+        self._artifact_store.put(key, value)
+        return {
+            "success": True,
+            "message": f"Artifact '{key}' stored ({len(value)} chars). "
+                       f"Other agents can retrieve it with get_artifact.",
+            "keys": self._artifact_store.keys(),
+        }
+
+    def _handle_get_artifact(self, key: str, **kwargs: Any) -> dict[str, Any]:
+        """Retrieve a stored artifact by key, or list all keys with '*'."""
+        if key == "*":
+            all_keys = self._artifact_store.keys()
+            return {
+                "success": True,
+                "keys": all_keys,
+                "count": len(all_keys),
+            }
+        value = self._artifact_store.get(key)
+        if value is None:
+            return {
+                "success": False,
+                "error": f"No artifact found with key '{key}'.",
+                "available_keys": self._artifact_store.keys(),
+            }
+        return {
+            "success": True,
+            "key": key,
+            "value": value,
+        }
+
+    def _handle_check_challenge_status(
+        self,
+        target_url: str,
+        challenge_name: str = "",
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Query /api/Challenges to see solved status."""
+        import json as _json
+
+        result = run_http_request(
+            url=f"{target_url.rstrip('/')}/api/Challenges/",
+            method="GET",
+            timeout=10,
+        )
+        if not result.success:
+            return {"success": False, "error": result.errors}
+
+        try:
+            body = result.output.get("body", "") if isinstance(result.output, dict) else str(result.output)
+            data = _json.loads(body) if isinstance(body, str) else body
+            challenges = data.get("data", [])
+
+            if challenge_name:
+                matches = [
+                    c for c in challenges
+                    if challenge_name.lower() in c.get("name", "").lower()
+                    or challenge_name.lower() in c.get("category", "").lower()
+                ]
+                return {
+                    "success": True,
+                    "filter": challenge_name,
+                    "matches": [
+                        {
+                            "name": c["name"],
+                            "solved": c.get("solved", False),
+                            "difficulty": c.get("difficulty"),
+                            "category": c.get("category", ""),
+                        }
+                        for c in matches
+                    ],
+                    "matched_count": len(matches),
+                }
+
+            solved = [c for c in challenges if c.get("solved")]
+            unsolved = [c for c in challenges if not c.get("solved")]
+            return {
+                "success": True,
+                "total_challenges": len(challenges),
+                "solved_count": len(solved),
+                "unsolved_count": len(unsolved),
+                "solved": [
+                    {"name": c["name"], "difficulty": c.get("difficulty")}
+                    for c in solved
+                ],
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     @staticmethod
     def _skill_result_to_dict(result: SkillResult) -> dict[str, Any]:
@@ -727,7 +956,8 @@ class AgenticLoopConfig:
     deliverables_dir: Path = DELIVERABLES_DIR
     verbose: bool = False
     use_playwright: bool = True
-    max_browser_calls: int = 50
+    max_browser_calls: int = 80
+    artifact_store: ArtifactStore | None = None
 
 
 _BROWSER_TOOL_NAMES = frozenset({
@@ -737,6 +967,7 @@ _BROWSER_TOOL_NAMES = frozenset({
     "browser_screenshot",
     "browser_evaluate",
     "browser_network_requests",
+    "browser_set_auth",
 })
 
 
@@ -769,7 +1000,11 @@ def setup_agentic_loop(
         logger.warning("No skills found! Run 'python -m src skills --setup' first.")
 
     use_pw = config.use_playwright
-    dispatcher = SkillToolDispatcher(registry, use_playwright=use_pw)
+    dispatcher = SkillToolDispatcher(
+        registry,
+        use_playwright=use_pw,
+        artifact_store=config.artifact_store,
+    )
 
     # Configure Playwright budget
     if use_pw:

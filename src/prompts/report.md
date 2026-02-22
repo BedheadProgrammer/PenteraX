@@ -14,14 +14,14 @@ Synthesise all exploitation findings into a **professional penetration test repo
 
 ## Report Instructions
 
-1. **Aggregate and deduplicate** findings from injection and XSS exploitation phases. If both phases found the same endpoint/vulnerability combination, merge into a single finding.
+1. **Aggregate and deduplicate** findings from all exploitation phases (injection, XSS, authentication, authorization/IDOR, and SSRF). If multiple phases found the same endpoint/vulnerability combination, merge into a single finding.
 2. **Assign CVSS v3.1 scores** to each finding with full vector strings (e.g., `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`).
 3. **Sort findings by severity** (Critical → High → Medium → Low → Informational).
-4. **Assign CWE IDs** — SQL injection = CWE-89, XSS = CWE-79 (use subtypes where appropriate: CWE-79.1 Reflected, CWE-79.2 Stored).
+4. **Assign CWE IDs** — SQL injection = CWE-89, XSS = CWE-79 (use subtypes where appropriate: CWE-79.1 Reflected, CWE-79.2 Stored), Broken Authentication = CWE-287, Broken Authorization/IDOR = CWE-639, SSRF = CWE-918, XXE = CWE-611, Path Traversal = CWE-22, SSTI = CWE-1336.
 5. **Write clear, specific recommendations** — not generic advice but concrete remediation steps referencing the actual code/endpoint.
 6. **Include evidence references** — cite screenshot paths, dialog captures, HTTP response excerpts from the findings.
-7. **Handle partial data gracefully** — if only injection OR XSS findings are available, produce a complete report for the available data. Never leave empty sections — state what was tested and what wasn't.
-8. **Include scope limitations** — we only tested SQL injection and XSS; other vulnerability classes were out of scope.
+7. **Handle partial data gracefully** — if only some finding categories are available, produce a complete report for the available data. Never leave empty sections — state what was tested and what wasn't.
+8. **Include scope limitations** — note any vulnerability classes that were NOT tested.
 
 ## Required Output Format
 
@@ -32,7 +32,7 @@ Produce a single markdown document with ALL of the following sections:
 
 **Target:** {{TARGET_URL}}
 **Date:** [current date]
-**Scope:** SQL Injection, Cross-Site Scripting (XSS)
+**Scope:** SQL Injection, NoSQL Injection, XXE, Path Traversal, SSTI, Cross-Site Scripting (XSS), Broken Authentication, Broken Authorization (IDOR), SSRF
 **Tool:** PenteraX Agentic Pipeline
 **Classification:** Confidential
 
@@ -41,7 +41,7 @@ Produce a single markdown document with ALL of the following sections:
 ## Executive Summary
 
 [2–3 concise paragraphs summarising:
-- What was tested (Juice Shop at {{TARGET_URL}}, scope: SQLi + XSS)
+- What was tested (Juice Shop at {{TARGET_URL}}, scope: SQLi, NoSQL, XXE, Path Traversal, SSTI, XSS, Auth, AuthZ/IDOR, SSRF)
 - Total vulnerabilities found, broken down by severity (Critical: N, High: N, Medium: N, Low: N)
 - The most impactful findings in business terms (e.g., "complete database compromise", "authentication bypass")
 - Overall risk rating (Critical/High/Medium/Low) with justification
@@ -61,13 +61,20 @@ Produce a single markdown document with ALL of the following sections:
 
 ### In Scope
 - SQL Injection (CWE-89) — including union-based, boolean-based, and authentication bypass
-- Cross-Site Scripting (CWE-79) — including reflected, stored, and DOM-based
+- NoSQL Injection — operator injection on MongoDB-backed endpoints
+- XXE (CWE-611) — XML External Entity injection via file upload and B2B endpoints
+- Path Traversal (CWE-22) — directory traversal and null byte bypass on file-serving endpoints
+- Server-Side Template Injection (CWE-1336) — Pug/Jade template injection on B2B endpoints
+- Cross-Site Scripting (CWE-79) — including reflected, stored, DOM-based, JSONP callback, and header-based XSS
+- Broken Authentication (CWE-287) — SQL injection auth bypass, JWT manipulation, default credentials, password reset
+- Broken Authorization / IDOR (CWE-639) — insecure direct object references, privilege escalation, cross-user data access
+- Server-Side Request Forgery (CWE-918) — URL-based SSRF via profile image upload, internal service access
 
 ### Out of Scope
-- Other OWASP Top 10 categories (SSRF, IDOR, CSRF, etc.)
 - Infrastructure-level vulnerabilities
 - Denial of Service testing
 - Social engineering
+- CSRF (partially covered under auth, but not dedicated testing)
 
 ### Methodology
 1. **Reconnaissance:** Automated source code analysis, endpoint enumeration, technology stack identification, and network scanning
@@ -144,16 +151,14 @@ NOT generic advice like "sanitize input"]
 
 ## Scope Limitations
 
-This assessment was limited to **SQL Injection and Cross-Site Scripting** only. The following vulnerability classes were NOT tested and may exist:
-- Server-Side Request Forgery (SSRF)
-- Insecure Direct Object References (IDOR)
-- Cross-Site Request Forgery (CSRF)
-- Broken Access Control
-- Security Misconfiguration
-- Insecure Deserialization
-- XML External Entity (XXE)
+This assessment covered **SQL Injection, NoSQL Injection, XXE, Path Traversal, SSTI, Cross-Site Scripting, Broken Authentication, Broken Authorization (IDOR), and SSRF**. The following vulnerability classes were NOT tested and may exist:
+- Cross-Site Request Forgery (CSRF) — dedicated testing not performed
+- Security Misconfiguration — beyond header/cookie checks
+- Insecure Deserialization — partially covered via SSTI but not dedicated testing
+- Insufficient Logging & Monitoring
+- Cryptographic Failures — beyond JWT weakness testing
 
-A comprehensive assessment covering all OWASP Top 10 categories is recommended.
+A comprehensive assessment covering all OWASP Top 10 categories with dedicated tooling is recommended.
 ```
 
 ## Handling Partial Data

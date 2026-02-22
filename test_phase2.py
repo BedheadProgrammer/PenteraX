@@ -404,6 +404,12 @@ def main() -> None:
             "required_content": ["hypotheses", "xss"],
         },
         {
+            "path": "src/prompts/analysis-auth.md",
+            "min_bytes": 1000,
+            "required_vars": ["RECON_DATA", "TARGET_URL"],
+            "required_content": ["hypotheses", "auth", "login"],
+        },
+        {
             "path": "src/prompts/exploit-injection.md",
             "min_bytes": 1000,
             "required_vars": ["HYPOTHESES", "TARGET_URL"],
@@ -414,6 +420,36 @@ def main() -> None:
             "min_bytes": 1000,
             "required_vars": ["HYPOTHESES", "TARGET_URL"],
             "required_content": ["findings", "xss"],
+        },
+        {
+            "path": "src/prompts/exploit-auth.md",
+            "min_bytes": 1000,
+            "required_vars": ["HYPOTHESES", "TARGET_URL"],
+            "required_content": ["findings", "auth", "login"],
+        },
+        {
+            "path": "src/prompts/analysis-authz.md",
+            "min_bytes": 1000,
+            "required_vars": ["RECON_DATA", "TARGET_URL"],
+            "required_content": ["hypotheses", "authz", "idor"],
+        },
+        {
+            "path": "src/prompts/exploit-authz.md",
+            "min_bytes": 1000,
+            "required_vars": ["HYPOTHESES", "TARGET_URL"],
+            "required_content": ["findings", "authz", "idor"],
+        },
+        {
+            "path": "src/prompts/analysis-ssrf.md",
+            "min_bytes": 1000,
+            "required_vars": ["RECON_DATA", "TARGET_URL"],
+            "required_content": ["hypotheses", "ssrf"],
+        },
+        {
+            "path": "src/prompts/exploit-ssrf.md",
+            "min_bytes": 1000,
+            "required_vars": ["HYPOTHESES", "TARGET_URL"],
+            "required_content": ["findings", "ssrf"],
         },
         {
             "path": "src/prompts/report.md",

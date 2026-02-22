@@ -535,13 +535,13 @@ def run_phase_analysis(
     agent_runner: Callable[..., str] | None = None,
     stop_event: threading.Event | None = None,
 ) -> PhaseResult:
-    """Phase 1: Analysis (injection + XSS).
+    """Phase 1: Analysis (injection + XSS + auth + authz + ssrf).
 
     - Reads recon_report.md
     - Runs vulnerability lookups to enrich with CVE data
-    - Produces hypotheses_injection.md and hypotheses_xss.md
+    - Produces hypotheses_injection.md, hypotheses_xss.md, hypotheses_auth.md, hypotheses_authz.md, and hypotheses_ssrf.md
 
-    Injection and XSS analyses run **in parallel** via ThreadPoolExecutor
+    Injection, XSS, auth, authz, and ssrf analyses run **in parallel** via ThreadPoolExecutor
     (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
     file so there is no file contention (Race condition #5).
     """
@@ -573,21 +573,30 @@ def run_phase_analysis(
         "TARGET_URL": config.target_url,
     }
 
-    # Run injection + XSS analysis in parallel
+    # Run injection + XSS + auth + authz + ssrf analysis in parallel
     sub_phases = [
         ("injection", "analysis-injection.md", "hypotheses_injection.md", "hypotheses"),
         ("xss", "analysis-xss.md", "hypotheses_xss.md", "hypotheses"),
+        ("auth", "analysis-auth.md", "hypotheses_auth.md", "hypotheses"),
+        ("authz", "analysis-authz.md", "hypotheses_authz.md", "hypotheses"),
+        ("ssrf", "analysis-ssrf.md", "hypotheses_ssrf.md", "hypotheses"),
     ]
 
+    # Stagger submissions to avoid blowing the per-minute input-token
+    # rate limit (all 5 prompts + tool defs sent at once ≈ 200K+ tokens).
+    _ANALYSIS_STAGGER_SECS = 15
+
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis") as pool:
-        futures = {
-            pool.submit(
+        futures: dict[Any, str] = {}
+        for idx, (a_type, tmpl, deliv, sch) in enumerate(sub_phases):
+            if idx > 0:
+                time.sleep(_ANALYSIS_STAGGER_SECS)
+            fut = pool.submit(
                 _run_single_analysis,
                 a_type, tmpl, deliv, sch,
                 registry, config, prompt_vars_base, agent_runner, stop_event,
-            ): a_type
-            for a_type, tmpl, deliv, sch in sub_phases
-        }
+            )
+            futures[fut] = a_type
 
         for future in as_completed(futures):
             a_type = futures[future]
@@ -691,9 +700,9 @@ def run_phase_exploit(
     """Phase 2: Exploitation.
 
     - Reads hypothesis files
-    - Produces findings_injection.md and findings_xss.md
+    - Produces findings_injection.md, findings_xss.md, findings_auth.md, findings_authz.md, and findings_ssrf.md
 
-    Injection and XSS exploits run **in parallel** via ThreadPoolExecutor
+    Injection, XSS, auth, authz, and ssrf exploits run **in parallel** via ThreadPoolExecutor
     (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
     file so there is no file contention (Race condition #5).
     """
@@ -704,17 +713,26 @@ def run_phase_exploit(
     sub_phases = [
         ("injection", "exploit-injection.md", "hypotheses_injection.md", "findings_injection.md"),
         ("xss", "exploit-xss.md", "hypotheses_xss.md", "findings_xss.md"),
+        ("auth", "exploit-auth.md", "hypotheses_auth.md", "findings_auth.md"),
+        ("authz", "exploit-authz.md", "hypotheses_authz.md", "findings_authz.md"),
+        ("ssrf", "exploit-ssrf.md", "hypotheses_ssrf.md", "findings_ssrf.md"),
     ]
 
+    # Stagger submissions to avoid blowing the per-minute input-token
+    # rate limit (all 5 prompts + tool defs sent at once ≈ 200K+ tokens).
+    _EXPLOIT_STAGGER_SECS = 15
+
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="exploit") as pool:
-        futures = {
-            pool.submit(
+        futures: dict[Any, str] = {}
+        for idx, (e_type, tmpl, hyp, find) in enumerate(sub_phases):
+            if idx > 0:
+                time.sleep(_EXPLOIT_STAGGER_SECS)
+            fut = pool.submit(
                 _run_single_exploit,
                 e_type, tmpl, hyp, find,
                 registry, config, agent_runner, stop_event,
-            ): e_type
-            for e_type, tmpl, hyp, find in sub_phases
-        }
+            )
+            futures[fut] = e_type
 
         for future in as_completed(futures):
             e_type = futures[future]
@@ -754,7 +772,7 @@ def run_phase_report(
 
     # Gather all findings
     findings_parts = []
-    for name in ["findings_injection.md", "findings_xss.md"]:
+    for name in ["findings_injection.md", "findings_xss.md", "findings_auth.md", "findings_authz.md", "findings_ssrf.md"]:
         content = read_deliverable(name, config.output_dir)
         if content:
             findings_parts.append(f"# {name}\n\n{content}")
@@ -823,8 +841,14 @@ _REPLAY_FILES = [
     "recon_report.md",
     "hypotheses_injection.md",
     "hypotheses_xss.md",
+    "hypotheses_auth.md",
+    "hypotheses_authz.md",
+    "hypotheses_ssrf.md",
     "findings_injection.md",
     "findings_xss.md",
+    "findings_auth.md",
+    "findings_authz.md",
+    "findings_ssrf.md",
     "pentest_report.md",
 ]
 
@@ -879,12 +903,12 @@ _PHASE_META: dict[str, dict[str, Any]] = {
         "expected_deliverables": ["recon_report.md"],
     },
     "analysis": {
-        "agent_name": "analysis-agent (injection + xss)",
-        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md"],
+        "agent_name": "analysis-agent (injection + xss + auth + authz + ssrf)",
+        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md", "hypotheses_auth.md", "hypotheses_authz.md", "hypotheses_ssrf.md"],
     },
     "exploit": {
-        "agent_name": "exploit-agent (injection + xss)",
-        "expected_deliverables": ["findings_injection.md", "findings_xss.md"],
+        "agent_name": "exploit-agent (injection + xss + auth + authz + ssrf)",
+        "expected_deliverables": ["findings_injection.md", "findings_xss.md", "findings_auth.md", "findings_authz.md", "findings_ssrf.md"],
     },
     "report": {
         "agent_name": "report-agent",
@@ -1077,6 +1101,20 @@ def run_pipeline(
                 phase_key,
                 missing,
             )
+
+        # ── Rate-limit cooldown between heavy phases ──────────────────
+        # The Anthropic API enforces a sliding per-minute input-token
+        # window.  Inserting a pause after analysis/exploit phases lets
+        # the window drain before submitting the next batch of prompts.
+        _RATE_LIMIT_COOLDOWN_PHASES = {"analysis", "exploit"}
+        if phase_key in _RATE_LIMIT_COOLDOWN_PHASES and phase_result.success:
+            cooldown = 30  # seconds
+            logger.info(
+                "  Rate-limit cooldown: waiting %ds before next phase…",
+                cooldown,
+            )
+            print(f"  [rate-limit] Cooling down {cooldown}s before next phase…", flush=True)
+            time.sleep(cooldown)
 
     pipeline_end_dt = datetime.now()
     result.total_duration_seconds = time.time() - pipeline_start
