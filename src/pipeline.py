@@ -483,7 +483,18 @@ def _run_single_analysis(
     if agent_runner:
         try:
             output = agent_runner(prompt_text, f"analysis-{analysis_type}")
-            save_deliverable(deliverable_name, output, config.output_dir)
+            # Only overwrite if the agent's text is longer than what the
+            # save_deliverable tool already wrote during the agentic loop.
+            already_saved = (config.output_dir / deliverable_name).exists()
+            if already_saved:
+                existing = (config.output_dir / deliverable_name).read_text(encoding="utf-8")
+                if len(output.strip()) > len(existing.strip()):
+                    save_deliverable(deliverable_name, output, config.output_dir)
+                else:
+                    logger.info("Keeping tool-saved %s (%d chars > agent text %d chars)",
+                                deliverable_name, len(existing), len(output))
+            else:
+                save_deliverable(deliverable_name, output, config.output_dir)
             delivered = deliverable_name
         except Exception as e:
             return "", f"Analysis-{analysis_type} agent failed: {e}", []
@@ -617,7 +628,18 @@ def _run_single_exploit(
     if agent_runner:
         try:
             output = agent_runner(prompt_text, f"exploit-{exploit_type}")
-            save_deliverable(findings_file, output, config.output_dir)
+            # Only overwrite if the agent's text is longer than what the
+            # save_deliverable tool already wrote during the agentic loop.
+            already_saved = (config.output_dir / findings_file).exists()
+            if already_saved:
+                existing = (config.output_dir / findings_file).read_text(encoding="utf-8")
+                if len(output.strip()) > len(existing.strip()):
+                    save_deliverable(findings_file, output, config.output_dir)
+                else:
+                    logger.info("Keeping tool-saved %s (%d chars > agent text %d chars)",
+                                findings_file, len(existing), len(output))
+            else:
+                save_deliverable(findings_file, output, config.output_dir)
             delivered = findings_file
         except Exception as e:
             return "", f"Exploit-{exploit_type} agent failed: {e}", []
@@ -726,7 +748,18 @@ def run_phase_report(
     if agent_runner:
         try:
             output = agent_runner(prompt_text, "report")
-            save_deliverable("pentest_report.md", output, config.output_dir)
+            # Only overwrite if the agent's text is longer than what the
+            # save_deliverable tool already wrote during the agentic loop.
+            already_saved = (config.output_dir / "pentest_report.md").exists()
+            if already_saved:
+                existing = (config.output_dir / "pentest_report.md").read_text(encoding="utf-8")
+                if len(output.strip()) > len(existing.strip()):
+                    save_deliverable("pentest_report.md", output, config.output_dir)
+                else:
+                    logger.info("Keeping tool-saved pentest_report.md (%d chars > agent text %d chars)",
+                                len(existing), len(output))
+            else:
+                save_deliverable("pentest_report.md", output, config.output_dir)
             phase.deliverables.append("pentest_report.md")
         except Exception as e:
             phase.errors.append(f"Report agent failed: {e}")

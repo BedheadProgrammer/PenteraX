@@ -22,6 +22,8 @@ import sys
 import threading
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 from .config import AppConfig
 from .exceptions import PipelineAbortedError
 from .logging_handler import setup_logging
@@ -266,12 +268,26 @@ def cmd_lookup(args: argparse.Namespace) -> int:
 # pipeline subcommand
 # ---------------------------------------------------------------------------
 
+def _resolve_api_key(cli_key: str) -> str:
+    """Resolve Anthropic API key: CLI arg > env var > .env file."""
+    if cli_key:
+        return cli_key
+    import os
+    env_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if env_key:
+        return env_key
+    # Try loading from .env
+    load_dotenv(dotenv_path=PROJECT_ROOT / ".env", override=False)
+    return os.getenv("ANTHROPIC_API_KEY", "")
+
+
 def cmd_pipeline(args: argparse.Namespace) -> int:
     """Handle the ``pipeline`` subcommand — full agentic run."""
-    # Build AppConfig from CLI args
+    # Build AppConfig from CLI args (with .env fallback for API key)
+    api_key = _resolve_api_key(getattr(args, "api_key", "") or "")
     cfg = AppConfig(
         target_url=args.target,
-        anthropic_api_key=getattr(args, "api_key", "") or "",
+        anthropic_api_key=api_key,
         output_dir=Path(args.output),
         max_retries=args.retries,
         max_budget_usd=float(getattr(args, "budget", 10.0) or 10.0),
@@ -287,9 +303,10 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
 
 def cmd_direct(args: argparse.Namespace) -> int:
     """Direct pipeline run from top-level flags (no subcommand)."""
+    api_key = _resolve_api_key(args.api_key or "")
     cfg = AppConfig(
         target_url=args.target_url,
-        anthropic_api_key=args.api_key,
+        anthropic_api_key=api_key,
         output_dir=Path(args.output_dir) if args.output_dir else DELIVERABLES_DIR,
         max_retries=int(args.max_retries or 3),
         max_budget_usd=float(args.budget or 10.0),
@@ -357,19 +374,22 @@ def _run_pipeline_from_config(
     runner = None
     if not replay:
         from .agent_runner import AgentRunner
-        from .agent_loop import MCP_TOOLS, SkillToolDispatcher
+        from .agent_loop import MCP_TOOLS, SkillToolDispatcher, build_system_prompt_skills_section
         from .skills.skill_loader import SkillRegistry as SR
+
+        registry = SR()
+        dispatcher = SkillToolDispatcher(registry)
+        system_prompt = build_system_prompt_skills_section(registry)
 
         runner = AgentRunner(
             api_key=cfg.anthropic_api_key,
             max_budget_usd=cfg.max_budget_usd,
             max_agent_budget_usd=4.0,
             stop_event=stop_event,
+            tools=MCP_TOOLS,
+            tool_dispatcher=dispatcher,
+            system_prompt=system_prompt,
         )
-        registry = SR()
-        dispatcher = SkillToolDispatcher(registry)
-        runner._tools = MCP_TOOLS
-        runner._tool_dispatcher = dispatcher
         agent_runner_fn = runner.run
 
     try:

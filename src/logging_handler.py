@@ -82,6 +82,21 @@ def setup_logging(
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)  # root captures everything; handlers filter
 
+    # Silence noisy third-party libraries that flood the log with
+    # per-request DEBUG lines (HTTP headers, request bodies, etc.)
+    for noisy in (
+        "httpcore",
+        "httpcore.http11",
+        "httpcore.connection",
+        "httpx",
+        "anthropic._base_client",
+        "anthropic",
+        "urllib3",
+        "urllib3.connectionpool",
+        "hpack",
+    ):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
     formatter = logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT)
 
     # Console handler --------------------------------------------------

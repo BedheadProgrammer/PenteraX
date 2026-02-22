@@ -351,14 +351,17 @@ def collect_nmap_scan(
     fd, xml_path = tempfile.mkstemp(suffix="_nmap_scan.xml")
     os.close(fd)
 
-    # Build nmap command per recon.md Step 2
+    # Build nmap command — lightweight scan since we already have source
+    # analysis + HTTP probes.  Drop -sV (version detection) and heavy
+    # NSE scripts like http-enum which brute-force hundreds of paths.
+    # This reduces scan time from ~130s to ~15s for a remote AWS target.
     cmd = [
         nmap_path,
-        "-sV",
+        "-sT",                   # TCP connect scan (faster than -sS on Windows)
         "-p", "80,443,8080,8443,3000,5000,8000,9000",
-        "--script", "http-enum,http-title,http-headers,http-methods",
+        "--script", "http-title",  # lightweight — just grab page titles
         "-Pn",                   # Skip host discovery — AWS SGs may block ICMP (RC #12)
-        "--host-timeout", "120s",  # AWS latency safety
+        "--host-timeout", "60s", # Reduced from 120s — we know the host is up (preflight passed)
         "-oX", xml_path,
         host,
     ]
