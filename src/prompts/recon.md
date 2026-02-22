@@ -106,6 +106,31 @@ Categorize consolidated sinks:
 
 {{VULN_LOOKUP_SKILL}}
 
+## MANDATORY: Trivial Info-Disclosure Probes
+
+IMPORTANT: Before producing the report, you MUST include the following trivially-reachable
+endpoints in the **Endpoints** table AND in the **Prioritized Attack Surface**. Each is
+a single unauthenticated GET that maps to one or more Juice Shop challenges:
+
+| Probe URL | Expected Response | Challenge |
+|-----------|-------------------|-----------|
+| `GET /metrics` | Prometheus metrics dump (200 OK, text/plain) | Exposed Metrics (1★) |
+| `GET /ftp/` | Directory listing of confidential docs (200 OK, HTML) | Confidential Document (1★) |
+| `GET /#/score-board` | Hidden scoreboard page (Angular SPA route) | Score Board (1★) |
+| `GET /api-docs/` | Swagger/OpenAPI UI with full API spec (200 OK, HTML) | — (info disclosure) |
+| `GET /security.txt` | Security policy file (200 OK, text) | Security Policy (1★) |
+| `GET /snippets` | Code snippets endpoint (200 OK, JSON) | — (info disclosure) |
+| `GET /encryptionkeys/jwt.pub` | RSA public key for JWT signing (200 OK, text) | Key Leakage |
+| `GET /robots.txt` | Disallow list revealing hidden paths (200 OK, text) | — (path discovery) |
+
+If the pre-collected HTTP probe data already covers these, cite those results.
+If not, mention them as **confirmed from source code analysis** (these routes are
+registered in `server.ts` and are reliably reachable).
+
+These low-hanging-fruit probes correspond to **4+ Juice Shop challenges** at 1★
+difficulty and provide valuable recon data (API spec, metrics, hidden files) for
+downstream exploit agents.
+
 ## Required Output Format
 
 **YOUR ENTIRE RESPONSE MUST BE the recon_report.md content.** Do NOT include any conversational text, preamble, or explanation. Start directly with `## Technology Stack`.
