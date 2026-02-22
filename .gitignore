@@ -1,0 +1,40 @@
+# ---- Standard project ignores ----
+
+# Python virtual environment
+.venv/
+venv/
+
+# Byte-compiled / cached
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+.env.*
+
+# Pipeline outputs
+deliverables/
+
+# Cloned target repos
+repos/
+
+# Raw skills clone (keep skills/ but not the full clone)
+skills_repo/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store
+
+# Misc caches
+.cache/
+.mypy_cache/
+.pytest_cache/
