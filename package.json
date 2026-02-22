@@ -1,0 +1,29 @@
+{
+  "name": "spaider-agent",
+  "version": "1.0.0",
+  "description": "SPAIDER Agent — AI-powered autonomous vulnerability scanner using Claude Agent SDK",
+  "main": "src/cli.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/cli.ts",
+    "gui": "ts-node src/gui/server.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["pentest", "security", "ai", "vulnerability-scanner"],
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^0.1.0",
+    "express": "^4.21.0",
+    "ws": "^8.18.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^22.0.0",
+    "@types/express": "^5.0.0",
+    "@types/ws": "^8.5.0",
+    "@types/uuid": "^10.0.0"
+  }
+}
