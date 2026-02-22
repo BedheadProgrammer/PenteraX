@@ -377,8 +377,25 @@ def collect_nmap_scan(
             text=True,
         )
 
+        # Poll the subprocess in a loop so we can check stop_event frequently
+        # instead of blocking on a single communicate() call (Phase 4 — Step 4.7).
+        _POLL_INTERVAL = 0.25  # seconds between stop_event checks
+        elapsed_wait = 0.0
+        stdout, stderr = "", ""
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
+            while proc.poll() is None:
+                # Check stop_event every poll interval
+                if stop_event is not None and stop_event.is_set():
+                    proc.kill()
+                    proc.wait(timeout=5)
+                    raise PipelineAbortedError("Pipeline aborted by user.")
+                time.sleep(_POLL_INTERVAL)
+                elapsed_wait += _POLL_INTERVAL
+                if elapsed_wait >= timeout:
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+            # Process finished — collect output
+            stdout = proc.stdout.read() if proc.stdout else ""
+            stderr = proc.stderr.read() if proc.stderr else ""
         except subprocess.TimeoutExpired:
             # Explicit kill required — subprocess.run() may not terminate
             # the child on all platforms (DESIGN_REVIEW §5 requirement #4)
@@ -570,14 +587,18 @@ def collect_http_probes(
         url = f"{base}{spec['path']}"
         label = spec["label"]
 
+        # Use a shorter timeout when stop has been requested or is imminent
+        # so individual requests don't block stop-event propagation.
+        req_timeout = min(timeout, 2) if (stop_event and stop_event.is_set()) else timeout
+
         try:
             if method == "GET":
-                resp = req_lib.get(url, timeout=timeout, allow_redirects=True)
+                resp = req_lib.get(url, timeout=req_timeout, allow_redirects=True)
             elif method == "POST":
-                resp = req_lib.post(url, json=spec.get("json"), timeout=timeout,
+                resp = req_lib.post(url, json=spec.get("json"), timeout=req_timeout,
                                     allow_redirects=True)
             else:
-                resp = req_lib.request(method, url, timeout=timeout,
+                resp = req_lib.request(method, url, timeout=req_timeout,
                                        allow_redirects=True)
 
             status = resp.status_code
@@ -683,6 +704,7 @@ def run_precollection(
     target_url: str,
     repo_path: str | Path,
     stop_event: threading.Event | None = None,
+    skip_network: bool = False,
 ) -> dict[str, str]:
     """Run all pre-collection steps sequentially and return template variables.
 
@@ -695,6 +717,14 @@ def run_precollection(
     - Steps run **sequentially** (no parallelism)
     - ``stop_event`` is checked between each step (RC #4 / #15)
     - Each step degrades gracefully on failure (requirement #2)
+
+    Args:
+        target_url: Target URL for network scans.
+        repo_path: Path to the source code repository.
+        stop_event: If set, abort pre-collection early.
+        skip_network: If True, skip expensive network operations (nmap,
+                      HTTP probes).  Used when no agent_runner is provided
+                      so tests don't waste 180s waiting for nmap to time out.
     """
     logger.info("=" * 60)
     logger.info("PRE-COLLECTION START")
@@ -724,39 +754,53 @@ def run_precollection(
 
     # Step 2: Nmap scan
     _check_stop(stop_event)
-    logger.info("Pre-collection step 2/3: Network scan (nmap)...")
-    step_start = time.time()
-    try:
-        results["NMAP_RESULTS"] = collect_nmap_scan(
-            target_url, stop_event=stop_event
-        )
-    except PipelineAbortedError:
-        raise
-    except Exception as e:
-        logger.warning("Nmap scan failed (non-fatal): %s", e)
+    if skip_network:
+        logger.info("Pre-collection step 2/3: Network scan SKIPPED (skip_network=True)")
         results["NMAP_RESULTS"] = (
-            f"## Pre-collected Network Scan\n\n"
-            f"Network scan failed: {e}\n"
+            "## Pre-collected Network Scan\n\n"
+            "Network scan skipped (no agent_runner — test/validation mode).\n"
         )
-    logger.info("  Step 2 complete: %.1fs", time.time() - step_start)
+    else:
+        logger.info("Pre-collection step 2/3: Network scan (nmap)...")
+        step_start = time.time()
+        try:
+            results["NMAP_RESULTS"] = collect_nmap_scan(
+                target_url, stop_event=stop_event
+            )
+        except PipelineAbortedError:
+            raise
+        except Exception as e:
+            logger.warning("Nmap scan failed (non-fatal): %s", e)
+            results["NMAP_RESULTS"] = (
+                f"## Pre-collected Network Scan\n\n"
+                f"Network scan failed: {e}\n"
+            )
+        logger.info("  Step 2 complete: %.1fs", time.time() - step_start)
 
     # Step 3: HTTP endpoint probing
     _check_stop(stop_event)
-    logger.info("Pre-collection step 3/3: HTTP endpoint probing...")
-    step_start = time.time()
-    try:
-        results["HTTP_PROBE_RESULTS"] = collect_http_probes(
-            target_url, stop_event=stop_event
-        )
-    except PipelineAbortedError:
-        raise
-    except Exception as e:
-        logger.warning("HTTP probing failed (non-fatal): %s", e)
+    if skip_network:
+        logger.info("Pre-collection step 3/3: HTTP probing SKIPPED (skip_network=True)")
         results["HTTP_PROBE_RESULTS"] = (
-            f"## Pre-collected HTTP Endpoint Probes\n\n"
-            f"HTTP probing failed: {e}\n"
+            "## Pre-collected HTTP Endpoint Probes\n\n"
+            "HTTP probing skipped (no agent_runner — test/validation mode).\n"
         )
-    logger.info("  Step 3 complete: %.1fs", time.time() - step_start)
+    else:
+        logger.info("Pre-collection step 3/3: HTTP endpoint probing...")
+        step_start = time.time()
+        try:
+            results["HTTP_PROBE_RESULTS"] = collect_http_probes(
+                target_url, stop_event=stop_event
+            )
+        except PipelineAbortedError:
+            raise
+        except Exception as e:
+            logger.warning("HTTP probing failed (non-fatal): %s", e)
+            results["HTTP_PROBE_RESULTS"] = (
+                f"## Pre-collected HTTP Endpoint Probes\n\n"
+                f"HTTP probing failed: {e}\n"
+            )
+        logger.info("  Step 3 complete: %.1fs", time.time() - step_start)
 
     total_chars = sum(len(v) for v in results.values())
     logger.info("=" * 60)

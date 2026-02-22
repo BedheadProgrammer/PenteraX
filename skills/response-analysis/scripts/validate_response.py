@@ -181,6 +181,13 @@ def validate_findings(content: str) -> list[str]:
                     "must contain actual HTTP response data, extracted records, or DOM content"
                 )
 
+        # CVSS check: findings should include a CVSS score
+        if "CVSS" not in section and "cvss" not in section.lower():
+            errors.append(
+                f"Finding {i}: Missing CVSS score — each finding should include "
+                "a CVSS v3.1 score in the Severity field"
+            )
+
     # Cross-cutting: target URL consistency, evidence authenticity, deduplication
     errors.extend(_check_target_url_consistency(content))
     errors.extend(_check_evidence_authenticity(content))
@@ -201,6 +208,62 @@ def validate_pentest_report(content: str) -> list[str]:
     for section in required_sections:
         if section not in content:
             errors.append(f"Missing required section: {section}")
+
+    # Enhanced: check for Scope Limitations section
+    if "## Scope Limitations" not in content and "## Scope & Methodology" not in content:
+        errors.append(
+            "Missing recommended section: ## Scope Limitations — "
+            "report should explicitly note which vulnerability classes were NOT tested"
+        )
+
+    # Enhanced: check for CVSS scores in findings
+    if "## Findings" in content:
+        findings_section = content.split("## Findings", 1)[1]
+        # Split at the next level-2 heading to isolate findings
+        findings_only = re.split(r"(?m)^## (?!#)", findings_section, maxsplit=1)[0]
+        finding_sections = re.split(r"### Finding \d+", findings_only)[1:]
+
+        if not finding_sections:
+            # Also try "### Finding N:" format (with title after colon)
+            finding_sections = re.split(r"### Finding \d+[:\s]", findings_only)[1:]
+
+        for i, section in enumerate(finding_sections, 1):
+            # Check CVSS score presence
+            if not re.search(r"CVSS[:\s]*\d+\.\d+", section, re.IGNORECASE):
+                errors.append(
+                    f"Finding {i} in report: Missing CVSS v3.1 score — "
+                    "each finding must include a numeric CVSS score"
+                )
+            # Check for proof of concept
+            if "**Proof" not in section and "Proof of Concept" not in section:
+                errors.append(
+                    f"Finding {i} in report: Missing proof of concept — "
+                    "each finding must include actual evidence"
+                )
+            # Check for CWE
+            if "CWE" not in section:
+                errors.append(
+                    f"Finding {i} in report: Missing CWE identifier — "
+                    "each finding should reference the relevant CWE"
+                )
+
+    # Enhanced: check for severity summary or count
+    has_severity_summary = (
+        "## Severity Summary" in content
+        or "severity" in content.lower() and "|" in content.split("## Executive Summary")[1].split("##")[0]
+        if "## Executive Summary" in content
+        else False
+    )
+    # Not a hard error, just informational — the executive summary should mention counts
+
+    # Check that Executive Summary mentions vulnerability counts
+    if "## Executive Summary" in content:
+        exec_summary = content.split("## Executive Summary", 1)[1]
+        exec_summary = re.split(r"(?m)^## (?!#)", exec_summary, maxsplit=1)[0]
+        if not re.search(r"\d+\s*(?:vulnerabilit|finding|flaw)", exec_summary, re.IGNORECASE):
+            errors.append(
+                "Executive Summary should mention the number of vulnerabilities found"
+            )
 
     # Cross-cutting: target URL consistency and evidence checks
     errors.extend(_check_target_url_consistency(content))

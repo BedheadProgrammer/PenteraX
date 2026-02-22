@@ -17,12 +17,40 @@ import logging
 import queue
 import threading
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 import anthropic
 
 from .exceptions import BudgetExhaustedError, PipelineAbortedError
 from .gui_events import BudgetEvent, LogEvent
+
+
+# ---------------------------------------------------------------------------
+# Per-agent statistics
+# ---------------------------------------------------------------------------
+
+@dataclass
+class AgentStats:
+    """Accumulated statistics for a single agent (phase) execution."""
+
+    agent_name: str
+    turns: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    duration_seconds: float = 0.0
+    success: bool = True
+    error: str | None = None
+
+    @property
+    def summary(self) -> str:
+        status = "OK" if self.success else "FAIL"
+        return (
+            f"{self.agent_name}: {status}  turns={self.turns}  "
+            f"tokens_in={self.input_tokens}  tokens_out={self.output_tokens}  "
+            f"cost=${self.cost_usd:.4f}  duration={self.duration_seconds:.1f}s"
+        )
 
 logger = logging.getLogger("penterax.agent_runner")
 
@@ -87,6 +115,7 @@ class AgentRunner:
         self,
         api_key: str,
         max_budget_usd: float = 10.0,
+        max_agent_budget_usd: float = 4.0,
         stop_event: threading.Event | None = None,
         event_queue: queue.Queue | None = None,
         tools: list[dict[str, Any]] | None = None,
@@ -95,6 +124,7 @@ class AgentRunner:
     ) -> None:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.max_budget_usd = max_budget_usd
+        self.max_agent_budget_usd = max_agent_budget_usd
         self.total_cost_usd: float = 0.0
 
         self._budget_lock = threading.Lock()  # Race condition #1
@@ -103,6 +133,12 @@ class AgentRunner:
         self._tools = tools
         self._tool_dispatcher = tool_dispatcher
         self._system_prompt = system_prompt
+
+        # Per-agent stats tracking (keyed by phase_name)
+        self._agent_stats: dict[str, AgentStats] = {}
+        self._stats_lock = threading.Lock()
+        # Current per-agent cost tracking for budget enforcement
+        self._current_agent_cost: dict[str, float] = {}
 
     # --------------------------------------------------------------------- #
     # Public interface                                                        #
@@ -123,6 +159,13 @@ class AgentRunner:
         self._check_stop()
         self._check_budget(phase_name)
 
+        # Initialize per-agent stats and cost tracking
+        with self._stats_lock:
+            self._agent_stats[phase_name] = AgentStats(agent_name=phase_name)
+            self._current_agent_cost[phase_name] = 0.0
+
+        agent_start = time.monotonic()
+
         # Guard against enormous prompts by trimming if necessary
         prompt = self._maybe_truncate(prompt)
 
@@ -132,7 +175,22 @@ class AgentRunner:
         ]
 
         # Enter the agentic loop (handles tool use if tools are configured)
-        return self._agentic_loop(messages, phase_name)
+        try:
+            result = self._agentic_loop(messages, phase_name)
+            with self._stats_lock:
+                stats = self._agent_stats[phase_name]
+                stats.duration_seconds = time.monotonic() - agent_start
+                stats.success = True
+            logger.info("Agent stats: %s", stats.summary)
+            return result
+        except Exception as exc:
+            with self._stats_lock:
+                stats = self._agent_stats[phase_name]
+                stats.duration_seconds = time.monotonic() - agent_start
+                stats.success = False
+                stats.error = str(exc)
+            logger.error("Agent stats: %s", stats.summary)
+            raise
 
     # --------------------------------------------------------------------- #
     # Agentic tool-use loop                                                   #
@@ -290,6 +348,17 @@ class AgentRunner:
         with self._budget_lock:
             self.total_cost_usd += call_cost
 
+        # Update per-agent statistics
+        with self._stats_lock:
+            if phase_name in self._agent_stats:
+                stats = self._agent_stats[phase_name]
+                stats.turns += 1
+                stats.input_tokens += input_tokens
+                stats.output_tokens += output_tokens
+                stats.cost_usd += call_cost
+            if phase_name in self._current_agent_cost:
+                self._current_agent_cost[phase_name] += call_cost
+
         logger.info(
             "[%s] tokens_in=%d  tokens_out=%d  cost=$%.4f  total=$%.4f  elapsed=%.1fs",
             phase_name,
@@ -310,10 +379,19 @@ class AgentRunner:
             )
 
     def _check_budget(self, phase_name: str) -> None:
-        """Raise ``BudgetExhaustedError`` if the spend cap is exceeded."""
+        """Raise ``BudgetExhaustedError`` if the spend cap is exceeded.
+
+        Checks both the global pipeline budget and the per-agent budget.
+        """
         with self._budget_lock:
             if self.total_cost_usd >= self.max_budget_usd:
                 raise BudgetExhaustedError(self.total_cost_usd, self.max_budget_usd)
+
+        # Per-agent budget enforcement
+        with self._stats_lock:
+            agent_cost = self._current_agent_cost.get(phase_name, 0.0)
+            if agent_cost >= self.max_agent_budget_usd:
+                raise BudgetExhaustedError(agent_cost, self.max_agent_budget_usd)
 
     # --------------------------------------------------------------------- #
     # Stop-event propagation                                                  #
@@ -323,6 +401,61 @@ class AgentRunner:
         """Raise ``PipelineAbortedError`` if the user requested a stop."""
         if self._stop_event is not None and self._stop_event.is_set():
             raise PipelineAbortedError("Pipeline aborted by user.")
+
+    # --------------------------------------------------------------------- #
+    # Stats access                                                            #
+    # --------------------------------------------------------------------- #
+
+    @property
+    def agent_stats(self) -> dict[str, AgentStats]:
+        """Return a snapshot of per-agent statistics."""
+        with self._stats_lock:
+            return dict(self._agent_stats)
+
+    def print_stats_summary(self) -> str:
+        """Build a human-readable stats summary table.
+
+        Returns the formatted string AND logs it.
+        """
+        with self._stats_lock:
+            stats = dict(self._agent_stats)
+
+        lines: list[str] = []
+        lines.append("")
+        lines.append("=" * 72)
+        lines.append("  Agent Execution Summary")
+        lines.append("=" * 72)
+        lines.append(
+            f"  {'Agent':<28} {'Status':>6}  {'Turns':>5}  "
+            f"{'Cost':>8}  {'Duration':>10}"
+        )
+        lines.append("  " + "-" * 68)
+
+        total_turns = 0
+        total_cost = 0.0
+        total_duration = 0.0
+
+        for name, s in stats.items():
+            status = "OK" if s.success else "FAIL"
+            lines.append(
+                f"  {name:<28} {status:>6}  {s.turns:>5}  "
+                f"${s.cost_usd:>7.4f}  {s.duration_seconds:>9.1f}s"
+            )
+            total_turns += s.turns
+            total_cost += s.cost_usd
+            total_duration += s.duration_seconds
+
+        lines.append("  " + "-" * 68)
+        lines.append(
+            f"  {'TOTAL':<28} {'':>6}  {total_turns:>5}  "
+            f"${total_cost:>7.4f}  {total_duration:>9.1f}s"
+        )
+        lines.append(f"  Pipeline budget remaining: ${self.max_budget_usd - self.total_cost_usd:.4f}")
+        lines.append("=" * 72)
+
+        summary = "\n".join(lines)
+        logger.info(summary)
+        return summary
 
     # --------------------------------------------------------------------- #
     # Context-window guard                                                    #

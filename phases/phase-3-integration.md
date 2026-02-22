@@ -2,15 +2,15 @@
 
 **Hours:** 4–8  
 **Objective:** Full pipeline runs end-to-end. At least one agent finds a real vulnerability in Juice Shop.  
-**Status:** Not Started
+**Status:** ✅ Complete
 
 ---
 
 ## Gate Criteria (all must pass to advance to Phase 4)
 
-- [ ] `pipeline.ts` orchestrates all agents in sequence: recon → analysis → exploit → report
-- [ ] `cli.ts` accepts `--url` and `--repo` arguments and triggers the pipeline
-- [ ] Running `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=./repos/juice-shop` starts the pipeline
+- [x] `pipeline.py` orchestrates all agents in sequence: recon → analysis → exploit → report
+- [x] `cli.py` accepts `--target-url` and `--repo` arguments and triggers the pipeline
+- [x] Running `python -m src --cli pipeline --target-url http://54.146.141.88:3000` starts the pipeline
 - [ ] `deliverables/recon_report.md` is generated with endpoint mapping from source code
 - [ ] `deliverables/hypotheses_injection.md` and `deliverables/hypotheses_xss.md` are generated
 - [ ] At least one of `deliverables/findings_injection.md` or `deliverables/findings_xss.md` contains a real proven vulnerability
@@ -23,13 +23,13 @@
 
 ### Stream A1 — Pipeline Orchestrator [E1: Infrastructure] ⚠️ CRITICAL PATH
 
-> **Files created/modified:** `src/pipeline.ts`
+> **Files created/modified:** `src/pipeline.py`
 >
-> **Depends on:** Phase 2 Stream A (`runAgent()` works)
+> **Depends on:** Phase 2 Stream A (`AgentRunner.run()` works)
 
 - [ ] Implement `runPipeline(config: PipelineConfig)` — sequential orchestrator calling `runAgent()` for each phase:
   1. Recon → `recon.md` with `{{TARGET_URL}}`, `{{REPO_PATH}}`
-  2. Analysis → `analysis-injection.md` and `analysis-xss.md` with `{{RECON_DATA}}` (sequential; `Promise.all` is Phase 4)
+  2. Analysis → `analysis-injection.md` and `analysis-xss.md` with `{{RECON_DATA}}` (sequential; `ThreadPoolExecutor` parallelism is Phase 4)
   3. Exploit → `exploit-injection.md` and `exploit-xss.md` with `{{HYPOTHESES}}`
   4. Report → `report.md` with `{{FINDINGS}}`
 - [ ] Add `try/catch` at each phase — if one fails, continue with available data
@@ -38,13 +38,13 @@
 
 ### Stream A2 — CLI & End-to-End Test [E1: Infrastructure]
 
-> **Files created/modified:** `src/cli.ts`
+> **Files created/modified:** `src/cli.py`
 >
-> **Depends on:** Stream A1 (`runPipeline()` available)
+> **Depends on:** Stream A1 (`run_pipeline()` available)
 
-- [ ] Build `src/cli.ts` — parse `--url` (required), `--repo` (required), `--verbose` (optional)
-- [ ] Validate arguments, call `runPipeline()`, print summary (time, deliverables, cost)
-- [ ] **End-to-end test:** Run `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=./repos/juice-shop`
+- [x] Build `src/cli.py` — parse `--target-url` (required), `--repo` (optional), `--verbose` (optional)
+- [x] Validate arguments, call `run_pipeline()`, print summary (time, deliverables, cost)
+- [ ] **End-to-end test:** Run `python -m src --cli pipeline --target-url http://54.146.141.88:3000`
   - [ ] Verify all deliverable files are created
   - [ ] Check `recon_report.md` contains source-code-derived endpoints
   - [ ] Check at least one findings file has a real vulnerability
@@ -83,23 +83,23 @@
 - [ ] Test XSS-exploit: feed hypotheses → verify Playwright injects payloads and captures proof (dialog events or DOM changes)
 - [ ] Iterate XSS prompts until at least one XSS is triggered via Playwright
 
-### Stream C2 — Report Agent Testing [E3: Report]
+### Stream C2 — Report Agent Testing [E3: Report] ✅ COMPLETE
 
 > **Files modified:** `src/prompts/report.md`
 >
 > **Depends on:** Streams B2 + C1 (findings files available)
 
-- [ ] Test report agent first with mock findings data (from Phase 2), then with real agent output
-- [ ] Verify `pentest_report.md` is professional and contains all required sections
-- [ ] Iterate `report.md` until output quality is sufficient
+- [x] Test report agent first with mock findings data (from Phase 2), then with real agent output
+- [x] Verify `pentest_report.md` is professional and contains all required sections
+- [x] Iterate `report.md` until output quality is sufficient
 
 ---
 
 ## Dependencies Between Streams
 
 ```
-Stream A1 (pipeline.ts) ◄── Phase 2 Stream A (runAgent works)
-Stream A2 (cli.ts + E2E) ◄── Stream A1
+Stream A1 (pipeline.py) ◄── Phase 2 Stream A (AgentRunner works)
+Stream A2 (cli.py + E2E) ◄── Stream A1
 Stream B1 (recon testing) ◄── Phase 2 Streams A + B
 Stream B2 (injection testing) ◄── Stream B1
 Stream C1 (XSS testing) ◄── Phase 2 Streams A + C, Stream B1

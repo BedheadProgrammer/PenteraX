@@ -30,6 +30,15 @@ from .skills.skill_wrappers import (
     format_sqlmap_finding,
     nmap_to_markdown,
 )
+from .skills.playwright_bridge import (
+    handle_browser_navigate,
+    handle_browser_click,
+    handle_browser_type,
+    handle_browser_screenshot,
+    handle_browser_evaluate,
+    handle_browser_network_requests,
+    PlaywrightManager,
+)
 from .pipeline import save_deliverable, DELIVERABLES_DIR
 
 logger = logging.getLogger("spaider.agent_loop")
@@ -305,6 +314,127 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "required": ["name", "content"],
         },
     },
+    # -- Playwright browser tools -------------------------------------------
+    {
+        "name": "browser_navigate",
+        "description": (
+            "Navigate the headless browser to a URL. Returns the page title, "
+            "current URL, and any JavaScript dialogs (alert/confirm/prompt) "
+            "that fired during navigation — critical for XSS proof. "
+            "Dialogs are automatically captured and returned in the 'dialogs' "
+            "array. Use 'load' wait_until for SPAs (default)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The URL to navigate to.",
+                },
+                "wait_until": {
+                    "type": "string",
+                    "description": (
+                        "When to consider navigation complete. Use 'load' (default) "
+                        "for SPAs like Juice Shop — 'networkidle' will hang due to "
+                        "persistent WebSocket connections."
+                    ),
+                    "enum": ["load", "domcontentloaded", "networkidle", "commit"],
+                    "default": "load",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "browser_click",
+        "description": (
+            "Click an element on the page by CSS selector or text selector "
+            "(e.g. 'text=Submit'). Returns success/failure."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector or Playwright text selector (e.g. 'text=Login').",
+                },
+            },
+            "required": ["selector"],
+        },
+    },
+    {
+        "name": "browser_type",
+        "description": (
+            "Type text into an input field identified by CSS selector. "
+            "Clears the field first, then types the given text."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector for the input field.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The text to type into the field.",
+                },
+            },
+            "required": ["selector", "text"],
+        },
+    },
+    {
+        "name": "browser_screenshot",
+        "description": (
+            "Capture a full-page screenshot. Saves the PNG to "
+            "deliverables/evidence/<name>.png and returns the file path "
+            "and a base64-encoded preview. Use for exploitation evidence."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Filename for the screenshot (e.g. 'xss-search-dom.png'). Auto-generated if omitted.",
+                },
+                "full_page": {
+                    "type": "boolean",
+                    "description": "Capture the full scrollable page (default: true).",
+                    "default": True,
+                },
+            },
+        },
+    },
+    {
+        "name": "browser_evaluate",
+        "description": (
+            "Execute a JavaScript expression in the page context and return "
+            "the result. Use for DOM inspection, e.g. "
+            "document.querySelectorAll('iframe').length."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "JavaScript expression to evaluate in the page.",
+                },
+            },
+            "required": ["expression"],
+        },
+    },
+    {
+        "name": "browser_network_requests",
+        "description": (
+            "List captured network request/response pairs since the last "
+            "browser_navigate call. Returns URL, status, method, and headers "
+            "for each request."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
@@ -325,7 +455,7 @@ class SkillToolDispatcher:
                                      {"product": "express", "version": "4.17.1"})
     """
 
-    def __init__(self, registry: SkillRegistry):
+    def __init__(self, registry: SkillRegistry, use_playwright: bool = True):
         self.registry = registry
         self._handlers: dict[str, Callable[..., dict[str, Any]]] = {
             "network_recon_parse_nmap": self._handle_parse_nmap,
@@ -337,6 +467,15 @@ class SkillToolDispatcher:
             "vulnerability_lookup_cve": self._handle_lookup_cve,
             "save_deliverable": self._handle_save_deliverable,
         }
+        if use_playwright:
+            self._handlers.update({
+                "browser_navigate": self._handle_browser_navigate,
+                "browser_click": self._handle_browser_click,
+                "browser_type": self._handle_browser_type,
+                "browser_screenshot": self._handle_browser_screenshot,
+                "browser_evaluate": self._handle_browser_evaluate,
+                "browser_network_requests": self._handle_browser_network_requests,
+            })
 
     @property
     def tool_names(self) -> list[str]:
@@ -494,6 +633,26 @@ class SkillToolDispatcher:
             "message": f"Saved deliverable: {name}",
         }
 
+    # -- Playwright browser handlers ----------------------------------------
+
+    def _handle_browser_navigate(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_navigate(**kwargs)
+
+    def _handle_browser_click(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_click(**kwargs)
+
+    def _handle_browser_type(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_type(**kwargs)
+
+    def _handle_browser_screenshot(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_screenshot(**kwargs)
+
+    def _handle_browser_evaluate(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_evaluate(**kwargs)
+
+    def _handle_browser_network_requests(self, **kwargs) -> dict[str, Any]:
+        return handle_browser_network_requests(**kwargs)
+
     @staticmethod
     def _skill_result_to_dict(result: SkillResult) -> dict[str, Any]:
         """Convert a SkillResult to a plain dict for JSON serialisation."""
@@ -567,6 +726,18 @@ class AgenticLoopConfig:
     skills_dir: Path | None = None
     deliverables_dir: Path = DELIVERABLES_DIR
     verbose: bool = False
+    use_playwright: bool = True
+    max_browser_calls: int = 50
+
+
+_BROWSER_TOOL_NAMES = frozenset({
+    "browser_navigate",
+    "browser_click",
+    "browser_type",
+    "browser_screenshot",
+    "browser_evaluate",
+    "browser_network_requests",
+})
 
 
 def setup_agentic_loop(
@@ -597,13 +768,26 @@ def setup_agentic_loop(
     if not registry.skill_names:
         logger.warning("No skills found! Run 'python -m src skills --setup' first.")
 
-    dispatcher = SkillToolDispatcher(registry)
+    use_pw = config.use_playwright
+    dispatcher = SkillToolDispatcher(registry, use_playwright=use_pw)
+
+    # Configure Playwright budget
+    if use_pw:
+        PlaywrightManager.set_max_calls(config.max_browser_calls)
+
+    # Filter out browser tools when Playwright is disabled
+    if use_pw:
+        tools = list(MCP_TOOLS)
+    else:
+        tools = [t for t in MCP_TOOLS if t["name"] not in _BROWSER_TOOL_NAMES]
+
     system_prompt_section = build_system_prompt_skills_section(registry)
 
     logger.info(
-        "Agentic loop ready — %d skills, %d tools",
+        "Agentic loop ready — %d skills, %d tools (playwright=%s)",
         len(registry.skill_names),
-        len(MCP_TOOLS),
+        len(tools),
+        use_pw,
     )
 
-    return registry, dispatcher, MCP_TOOLS, system_prompt_section
+    return registry, dispatcher, tools, system_prompt_section

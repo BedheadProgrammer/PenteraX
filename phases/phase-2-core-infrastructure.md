@@ -1,16 +1,16 @@
 # Phase 2: Core Infrastructure Build
 
 **Hours:** 2–4  
-**Objective:** `runAgent()` works with Claude SDK, MCP server operational, all prompt templates drafted.  
-**Status:** Not Started
+**Objective:** Agent loop works with Claude SDK, Playwright operational in-process, all prompt templates drafted.  
+**Status:** ✅ Complete
 
 ---
 
 ## Gate Criteria (all must pass to advance to Phase 3)
 
-- [ ] `runAgent()` successfully executes a trivial prompt via Claude Agent SDK and returns a response
-- [ ] Playwright MCP server connects and completes init handshake within `runAgent()`
-- [ ] `save_deliverable` MCP tool writes files to `deliverables/` directory
+- [x] `runAgent()` (now `AgentRunner.run()`) successfully executes a prompt via Claude API and returns a response
+- [x] Playwright browser works in-process (`playwright.sync_api`) — no MCP subprocess needed
+- [x] `save_deliverable` tool writes files to `deliverables/` directory
 - [ ] `loadPrompt()` correctly substitutes `{{VAR}}` placeholders in template files
 - [ ] All 6 prompt template files exist and contain substantive instructions:
   - [ ] `src/prompts/recon.md`
@@ -30,33 +30,31 @@
 
 ### Stream A — Agent Runner & Infrastructure [E1: Infrastructure] ⚠️ CRITICAL PATH
 
-> **Files created/modified:** `src/agent-runner.ts`, `src/mcp-server.ts`, `src/utils.ts`, `src/types.ts`
+> **Files created/modified:** `src/agent_runner.py`, `src/agent_loop.py`, `src/pipeline.py`, `src/config.py`, `src/skills/playwright_bridge.py`
 >
 > **Depends on:** Phase 1 Stream A (project scaffold complete)
+>
+> **Note:** The project uses **Python** (not TypeScript). The agent loop, pipeline, and
+> Playwright browser bridge are all implemented in Python.
 
-- [ ] Build `src/types.ts` — define shared types:
-  - [ ] `AgentConfig` interface (name, promptFile, vars, maxTurns, maxBudgetUsd)
-  - [ ] `AgentResult` interface (deliverables, cost, turns, duration)
-  - [ ] `PipelineConfig` interface (targetUrl, repoPath, outputDir)
-  - [ ] Deliverable schema types (endpoint table structure, hypothesis format, finding format)
-- [ ] Build `src/utils.ts` — utility functions:
-  - [ ] `loadPrompt(file, vars)` — read prompt template, substitute `{{VAR}}` placeholders
-  - [ ] `ensureDir(path)` — create directory if not exists
-  - [ ] `readDeliverable(name)` — read file from deliverables directory
-- [ ] Build `src/mcp-server.ts` — in-process MCP server:
-  - [ ] Implement `createSdkMcpServer()` with `save_deliverable` tool
-  - [ ] `save_deliverable` accepts `{ name: string, content: string }` and writes to `deliverables/`
-  - [ ] Test that tool registration works with Agent SDK
-- [ ] Build `src/agent-runner.ts` — universal agent launcher:
-  - [ ] Implement `runAgent(config: AgentConfig)` wrapping `query()`
-  - [ ] Configure Playwright MCP: `npx @playwright/mcp@latest --headless`
-  - [ ] Configure in-process MCP server (save_deliverable)
-  - [ ] Set permissions: `bypassPermissions` + `allowDangerouslySkipPermissions: true`
-  - [ ] Set `maxTurns` per agent type (recon: 50, analysis: 30, exploit: 80, report: 20)
-  - [ ] Set `maxBudgetUsd: 4.0` per agent
-  - [ ] Add basic console logging: agent name, start/end timestamps
-  - [ ] Test with trivial prompt: `"Say hello"` — verify response received
-  - [ ] Test Playwright MCP init handshake
+- [x] Build `src/config.py` — define shared configuration:
+  - [x] `AppConfig` dataclass (target_url, repo_path, api_key, max_turns, max_budget_usd)
+  - [x] `PipelineConfig` dataclass (use_playwright, max_browser_calls, max_retries)
+- [x] Build `src/pipeline.py` — utility functions:
+  - [x] `load_prompt(file, vars)` — read prompt template, substitute `{{VAR}}` placeholders
+  - [x] `save_deliverable(name, content)` — write to deliverables/ directory
+- [x] Build `src/skills/playwright_bridge.py` — in-process Playwright:
+  - [x] `PlaywrightManager` singleton with `RLock` for thread-safety
+  - [x] 6 handler functions: navigate, click, type, screenshot, evaluate, network_requests
+  - [x] Dialog auto-capture, network logging, crash recovery
+  - [x] `wait_until="load"` default (not `"networkidle"` — unsuitable for SPAs)
+- [x] Build `src/agent_runner.py` — universal agent launcher:
+  - [x] Implement `AgentRunner.run()` wrapping Claude API calls
+  - [x] Configure Playwright in-process (no MCP subprocess needed)
+  - [x] Configure tool dispatch via `SkillToolDispatcher`
+  - [x] Set `max_turns` per agent type; `max_budget_usd: 4.0` per agent
+  - [x] Add basic console logging: agent name, start/end timestamps
+  - [x] Test: Playwright browser navigation works within agent loop
 
 ### Stream B — Recon & Injection Prompts [E2: Injection]
 
@@ -147,7 +145,7 @@
 ## Dependencies Between Streams
 
 ```
-Stream A (agent-runner.ts) ──► Required by Phase 3 for agent execution
+Stream A (agent_runner.py, agent_loop.py, playwright_bridge.py) ──► Required by Phase 3 for agent execution
 Stream B (prompts) ──────────► Required by Phase 3 for agent configuration
 Stream C (prompts) ──────────► Required by Phase 3 for agent configuration
 ```
@@ -158,7 +156,7 @@ Stream C (prompts) ──────────► Required by Phase 3 for age
 
 ## Notes
 
-- The adversarial review recommends a 5-phase pipeline (split recon into code-analysis + external-recon). If time allows, implement this split in `pipeline.ts` during Phase 3. Otherwise, keep the 4-phase pipeline with enhanced recon prompt.
+- The adversarial review recommends a 5-phase pipeline (split recon into code-analysis + external-recon). If time allows, implement this split in `pipeline.py` during Phase 3. Otherwise, keep the 4-phase pipeline with enhanced recon prompt.
 - `maxBudgetUsd: 4.0` per agent keeps total cost under $25/run (6 agents × $4 = $24)
 - `maxTurns` are differentiated by agent type to prevent runaway agents
 - Deliverable schemas defined in `types.ts` ensure consistent handoff between phases

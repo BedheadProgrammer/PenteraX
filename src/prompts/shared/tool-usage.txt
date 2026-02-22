@@ -68,9 +68,9 @@ find repos/juice-shop/routes -name "*.ts" -o -name "*.js" | head -30
 
 ---
 
-## 2. Playwright MCP (Browser Automation)
+## 2. Playwright Browser Automation
 
-Playwright is available as an MCP server. Use it for:
+Playwright is available as an in-process headless Chromium browser. Use it for:
 - Navigating to pages and interacting with the Angular SPA
 - Capturing network traffic (request/response pairs)
 - Triggering XSS payloads and capturing dialog events

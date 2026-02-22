@@ -7,6 +7,7 @@ pyyaml>=6.0
 python-dotenv>=1.0.0
 Pillow>=10.0.0
 filelock>=3.12.0
+playwright>=1.40.0
 
 # Security tools
 sqlmap>=1.8.0

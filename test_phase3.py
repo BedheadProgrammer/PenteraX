@@ -995,6 +995,9 @@ def main() -> None:
                 "REPO_PATH": "./repos/juice-shop",
                 "NETWORK_RECON_SKILL": "## Network Recon Skill\nMock skill context.",
                 "VULN_LOOKUP_SKILL": "## Vuln Lookup Skill\nMock skill context.",
+                "SOURCE_ANALYSIS": "Mock source analysis: routes/search.ts, routes/login.ts",
+                "NMAP_RESULTS": "Mock nmap results: 3000/tcp open http",
+                "HTTP_PROBE_RESULTS": "Mock HTTP probes: /api/Products 200, /rest/products/search 200",
             },
             "must_contain": ["http://test-target:3000"],
         },
@@ -1105,7 +1108,7 @@ def main() -> None:
               len(registry.skill_names) >= 3,
               detail=str(registry.skill_names))
         check("setup_agentic_loop: dispatcher has all tools",
-              len(dispatcher.tool_names) == 4,
+              len(dispatcher.tool_names) == 8,
               detail=str(dispatcher.tool_names))
         check("setup_agentic_loop: tools is MCP_TOOLS", tools is MCP_TOOLS)
         check("setup_agentic_loop: prompt_section has content",

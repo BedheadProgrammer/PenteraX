@@ -12,8 +12,8 @@ Each phase has its own to-do list file that should be updated as work progresses
 
 | Phase | Name | Hours | Key Objective | Gate Criteria |
 |-------|------|-------|---------------|---------------|
-| **1** | [Foundation & Environment Setup](phase-1-foundation.md) | 0–2 | Project scaffold, target running, research complete | `npm install` succeeds, `npx tsc --noEmit` passes, Juice Shop accessible at `http://54.146.141.88:3000`, tools installed |
-| **2** | [Core Infrastructure Build](phase-2-core-infrastructure.md) | 2–4 | `runAgent()` works, prompt drafts complete | Trivial agent runs via SDK, all prompt files exist |
+| **1** | [Foundation & Environment Setup](phase-1-foundation.md) | 0–2 | Project scaffold, target running, research complete | `pip install -e .` succeeds, Playwright Chromium installed, Juice Shop accessible at `http://54.146.141.88:3000`, tools installed |
+| **2** | [Core Infrastructure Build](phase-2-core-infrastructure.md) | 2–4 | Agent loop works, prompt drafts complete | Agent runs via Claude API, Playwright browser works in-process, all prompt files exist |
 | **3** | [Pipeline Integration & First E2E](phase-3-integration.md) | 4–8 | Full pipeline runs end-to-end | At least 1 real vulnerability found |
 | **4** | [Prompt Engineering & Reliability](phase-4-reliability.md) | 8–16 | Agents reliably find vulnerabilities | 2+ vulns found across 3 consecutive runs |
 | **5** | [Polish & Demo Preparation](phase-5-polish.md) | 16–20 | Demo-ready system | Full run completes in < 10 min, README exists, demo script ready |
@@ -31,28 +31,28 @@ Phase 1: Foundation & Environment Setup
                          │
                     ── GATE 1 ──
                          │
-Phase 2: Core Infrastructure Build
-  ├── [E1] agent-runner.ts, mcp-server.ts, utils.ts, types.ts  (CRITICAL PATH)
+Phase 2: Core Infrastructure Build                          [✅ Complete]
+  ├── [E1] agent_runner.py, agent_loop.py, pipeline.py, playwright_bridge.py  (CRITICAL PATH)
   ├── [E2] recon.md, analysis-injection.md, shared prompts      (parallel — prompt files only)
   └── [E3] analysis-xss.md, exploit-xss.md drafts, report.md   (parallel — prompt files only)
                          │
                     ── GATE 2 ──
                          │
-Phase 3: Pipeline Integration & First E2E
-  ├── [E1] A1: pipeline.ts │ A2: cli.ts + E2E test ────────────(CRITICAL PATH)
+Phase 3: Pipeline Integration & First E2E                   [✅ Complete]
+  ├── [E1] A1: pipeline.py │ A2: cli.py + E2E test ───────────────(CRITICAL PATH)
   ├── [E2] B1: Recon agent testing │ B2: Injection agent testing
   └── [E3] C1: XSS agent testing │ C2: Report agent testing
                          │
                     ── GATE 3 ──
                          │
-Phase 4: Prompt Engineering & Reliability
-  ├── [E1] Error handling, logging, Promise.all parallelism ────┐
-  ├── [E2] Deep injection prompt iteration (3+ full cycles) ────┤ (all parallel)
+Phase 4: Prompt Engineering & Reliability                   [In Progress]
+  ├── [E1] Error handling, logging, ThreadPoolExecutor parallelism ────┐
+  ├── [E2] Deep injection prompt iteration (3+ full cycles) ────────┤ (all parallel)
   └── [E3] Deep XSS + report prompt iteration (3+ full cycles) ┘
                          │
                     ── GATE 4 ──
                          │
-Phase 5: Polish & Demo Preparation
+Phase 5: Polish & Demo Preparation                          [In Progress]
   ├── [E1] Console output, README, timing optimization ────────┐
   ├── [E2] Stretch: Auth vertical / harden injection ──────────┤ (all parallel)
   └── [E3] Demo script, architecture diagram, demo flow test ──┘
@@ -74,7 +74,7 @@ Phase 6: Final Verification & Demo
 The following work streams are **fully independent** and can be assigned to separate agents or engineers without risk of file conflicts:
 
 ### Stream A — Infrastructure (E1)
-Files owned: `src/agent-runner.ts`, `src/pipeline.ts`, `src/cli.ts`, `src/mcp-server.ts`, `src/utils.ts`, `src/types.ts`, `package.json`, `tsconfig.json`
+Files owned: `src/agent_runner.py`, `src/pipeline.py`, `src/cli.py`, `src/agent_loop.py`, `src/config.py`, `src/skills/playwright_bridge.py`, `pyproject.toml`, `requirements.txt`
 
 ### Stream B — Injection Vertical + Recon (E2)
 Files owned: `src/prompts/recon.md`, `src/prompts/analysis-injection.md`, `src/prompts/exploit-injection.md`, `src/prompts/shared/*`, Docker/target setup
@@ -82,7 +82,7 @@ Files owned: `src/prompts/recon.md`, `src/prompts/analysis-injection.md`, `src/p
 ### Stream C — XSS Vertical + Report (E3)
 Files owned: `src/prompts/analysis-xss.md`, `src/prompts/exploit-xss.md`, `src/prompts/report.md`, demo script, architecture diagram
 
-> **Conflict Zones:** No files are shared across streams. The only coupling is through the `deliverables/*.md` runtime files (handoff format), which is governed by the deliverable schema defined in Phase 2.
+> **Conflict Zones:** No files are shared across streams. The only coupling is through the `deliverables/*.md` runtime files (handoff format), which is governed by the deliverable schema. **Playwright** is a shared singleton (`PlaywrightManager`) with `RLock` — concurrent exploit agents safely serialise browser access via the lock.
 
 ---
 

@@ -61,10 +61,22 @@ export interface PhaseResultTS {
   validationPassed: boolean;
 }
 
+/** Per-agent execution statistics parsed from Python stdout. */
+export interface AgentStatsTS {
+  agentName: string;
+  status: string;
+  turns: number;
+  costUsd: number;
+  durationSeconds: number;
+}
+
 export interface PipelineResultTS {
   phases: PhaseResultTS[];
   totalDurationSeconds: number;
   deliverablesGenerated: string[];
+  /** Per-agent stats (populated when available from Python output). */
+  agentStats: AgentStatsTS[];
+  totalCostUsd: number;
 }
 
 // ── Pipeline runner ─────────────────────────────────────────────────────────
@@ -161,6 +173,8 @@ export function runPipeline(opts: RunPipelineOptions): Promise<PipelineResultTS>
         phases: [],
         totalDurationSeconds: elapsed,
         deliverablesGenerated: [],
+        agentStats: [],
+        totalCostUsd: 0,
       };
 
       const phaseOrder: PipelinePhase[] = ["recon", "analysis", "exploit", "report"];
@@ -180,6 +194,26 @@ export function runPipeline(opts: RunPipelineOptions): Promise<PipelineResultTS>
         });
 
         result.deliverablesGenerated.push(...found);
+      }
+
+      // Parse per-agent stats from stdout (format: "  <name>   <STATUS>  <turns>  $<cost>  <dur>s")
+      const allStdout = stdout.join("");
+      const statsLineRe = /^\s{2}(\S+)\s+(OK|FAIL)\s+(\d+)\s+\$\s*([\d.]+)\s+([\d.]+)s/gm;
+      let match: RegExpExecArray | null;
+      while ((match = statsLineRe.exec(allStdout)) !== null) {
+        result.agentStats.push({
+          agentName: match[1],
+          status: match[2],
+          turns: parseInt(match[3], 10),
+          costUsd: parseFloat(match[4]),
+          durationSeconds: parseFloat(match[5]),
+        });
+      }
+
+      // Parse total cost from stdout (format: "Total API cost: $X.XXXX")
+      const costMatch = allStdout.match(/Total API cost:\s+\$([\d.]+)/);
+      if (costMatch) {
+        result.totalCostUsd = parseFloat(costMatch[1]);
       }
 
       if (code !== 0 && code !== null) {

@@ -354,6 +354,7 @@ def _run_pipeline_from_config(
 
     # Build agent runner (None for replay mode)
     agent_runner_fn = None
+    runner = None
     if not replay:
         from .agent_runner import AgentRunner
         from .agent_loop import MCP_TOOLS, SkillToolDispatcher
@@ -362,6 +363,7 @@ def _run_pipeline_from_config(
         runner = AgentRunner(
             api_key=cfg.anthropic_api_key,
             max_budget_usd=cfg.max_budget_usd,
+            max_agent_budget_usd=4.0,
             stop_event=stop_event,
         )
         registry = SR()
@@ -396,8 +398,13 @@ def _run_pipeline_from_config(
             for err in phase.errors:
                 print(f"         Error: {err}")
 
-    if not replay and agent_runner_fn is not None:
+    if not replay and runner is not None:
+        # Print detailed per-agent timing/cost breakdown
+        stats_summary = runner.print_stats_summary()
+        print(stats_summary)
         print(f"\n  Total API cost: ${runner.total_cost_usd:.4f}")
+    elif not replay and agent_runner_fn is not None:
+        print(f"\n  Total API cost: ${runner.total_cost_usd:.4f}")  # type: ignore[union-attr]
 
     return 0 if all(p.success for p in result.phases) else 1
 

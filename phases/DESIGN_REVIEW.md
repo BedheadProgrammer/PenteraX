@@ -22,18 +22,28 @@ Phase 0 (Recon) → Phase 1 (Analysis) → Phase 2 (Exploit) → Phase 3 (Report
 
 | Tool | Purpose | Functional? |
 |------|---------|-------------|
-| `network_recon_parse_nmap` | Parse nmap XML into structured JSON | Yes — but only parses, does not run nmap |
+| `network_recon_parse_nmap` | Parse nmap XML into structured JSON | Yes |
+| `network_recon_run_nmap` | Run nmap against a target directly | Yes — AWS-safe flags, cross-platform |
+| `network_recon_run_whatweb` | Web technology fingerprinting | Yes — Python fallback if whatweb not installed |
+| `sql_injection_run_sqlmap` | Run sqlmap against endpoint/param | Yes — `--batch`, `--dbms=sqlite` defaults |
+| `http_request` | HTTP client (GET/POST/PUT/DELETE) | Yes — Python `requests` based |
 | `response_analysis_validate` | Validate deliverable against schema | Yes |
 | `vulnerability_lookup_cve` | Query OSV.dev and NVD for CVEs | Yes |
 | `save_deliverable` | Write files to deliverables/ directory | Yes |
+| `browser_navigate` | Navigate to URL, capture dialogs | Yes — Playwright `sync_api`, `wait_until="load"` default |
+| `browser_click` | Click element by CSS selector | Yes — Playwright in-process |
+| `browser_type` | Type into input field | Yes — Playwright in-process |
+| `browser_screenshot` | Capture page as PNG to `deliverables/evidence/` | Yes — Playwright in-process |
+| `browser_evaluate` | Execute JS in page context | Yes — Playwright in-process |
+| `browser_network_requests` | List captured network request/response pairs | Yes — Playwright in-process |
 
-**Missing capabilities** referenced in `recon.md` prompt:
+**Missing capabilities** referenced in `recon.md` prompt — **now resolved**:
 
 | Prompt Step | Action Required | Tool Available? |
-|-------------|-----------------|-----------------|
-| Step 1 — Source Code Analysis | `grep -rn` on `{{REPO_PATH}}` | No — no shell/filesystem tool |
-| Step 2 — Network Scan | `nmap -sV` against target | No — no shell execution tool |
-| Step 3 — HTTP Endpoint Discovery | GET/POST to `{{TARGET_URL}}` | No — no HTTP client tool |
+|-------------|-----------------|------------------|
+| Step 1 — Source Code Analysis | `grep -rn` on `{{REPO_PATH}}` | Yes — pre-collected by `run_precollection()` and injected as `{{SOURCE_ANALYSIS}}` |
+| Step 2 — Network Scan | `nmap -sV` against target | Yes — `network_recon_run_nmap` tool |
+| Step 3 — HTTP Endpoint Discovery | GET/POST to `{{TARGET_URL}}` | Yes — `http_request` tool + `browser_navigate` for SPA routes |
 | Step 4 — CVE Lookup | Query CVE databases | Yes — `vulnerability_lookup_cve` |
 | Step 5 — Consolidate Sinks | LLM reasoning | Yes — native LLM capability |
 
@@ -54,7 +64,7 @@ downstream analysis.
 | **Ground-truth priority** (source code over black-box) | Step 1 (source analysis) is marked CRITICAL and instructed first | ✅ Correct ordering — source analysis before network probing |
 | **Structured output for downstream consumption** | Required output format has explicit markdown tables and sections | ✅ Schema-driven — `validate_response.py` enforces structure |
 | **Uncertainty reduction** (each step narrows the attack surface) | Steps 1→5 progressively consolidate from broad scan to prioritized sinks | ✅ Correct information funnel |
-| **Observable data vs. hallucinated data** | Agent has no tools to actually execute Steps 1–3 | ❌ **Critical gap** — agent would hallucinate recon data |
+| **Observable data vs. hallucinated data** | Agent has tools for all data collection steps; pre-collection provides ground-truth source analysis | ✅ **Resolved** — `run_precollection()` injects real data before agent starts |
 
 ### Verdict on ShannonAI Alignment
 
@@ -83,14 +93,14 @@ vulnerabilities, and producing evidence-backed findings.
 
 | PentAI Principle | PenteraX Status | Assessment |
 |------------------|-----------------|------------|
-| **Tool-mediated action** (agent acts through tools, not imagination) | 4 MCP tools defined, but missing shell/HTTP tools | ⚠️ Partial — CVE lookup and validation work; recon collection does not |
+| **Tool-mediated action** (agent acts through tools, not imagination) | 14 MCP tools defined: shell tools (nmap, whatweb, sqlmap), HTTP client, 6 Playwright browser tools, validation, CVE lookup, deliverable save | ✅ Full coverage — all recon/exploit actions are tool-mediated |
 | **Evidence-backed findings** (HTTP responses, not assertions) | Exploit prompts require HTTP response bodies as proof | ✅ Correct design — but evidence quality depends on recon accuracy |
 | **Sequential phase handoff** (each phase consumes prior deliverable) | Pipeline reads `recon_report.md` → `hypotheses_*.md` → `findings_*.md` → `pentest_report.md` | ✅ Clean handoff via deliverable files |
 | **Parallel sub-phase execution** (injection + XSS simultaneously) | ThreadPoolExecutor with max_workers=2, separate deliverable files | ✅ Race condition #5 already mitigated |
 | **Budget-constrained execution** (cost caps per agent) | `AgentRunner._budget_lock` with `threading.Lock` | ✅ Race condition #1 mitigated |
 | **Cooperative abort** (stop propagation) | `stop_event` checked at every phase boundary and before API calls | ✅ Race conditions #4, #15 mitigated |
 | **Deterministic tool outputs** (tools return structured data, not prose) | `parse_nmap` returns JSON, `lookup_cve` returns structured results | ✅ Correct — deterministic where tools exist |
-| **Agent executes recon data collection** | No shell or HTTP tools available | ❌ **Agent cannot fulfill its primary recon function** |
+| **Agent executes recon data collection** | Pre-collection provides source analysis; `run_nmap`, `run_whatweb`, `http_request` tools cover network/HTTP probing | ✅ **Resolved** — hybrid pre-collection + tool-mediated approach |
 
 ### Verdict on PentAI Alignment
 

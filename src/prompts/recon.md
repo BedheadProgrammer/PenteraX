@@ -96,6 +96,8 @@ Categorize consolidated sinks:
 - **Path traversal sinks:** File download/upload endpoints using `path.join` with user input
 - **Command injection sinks:** Any endpoints invoking OS commands with user-controlled args
 
+**CRITICAL for SQL injection sinks:** You MUST include the EXACT raw SQL query string from the source code for each sink. For example, if routes/search.ts contains `models.sequelize.query("SELECT * FROM Products WHERE ...")`, quote the full SQL string. This is essential for downstream analysis agents to craft correct payloads. Also note the exact column count of the target table (e.g., Products has 9 columns: id, name, description, price, deluxePrice, image, createdAt, updatedAt, deletedAt).
+
 ## Network Recon Skill Context
 
 {{NETWORK_RECON_SKILL}}
@@ -144,9 +146,15 @@ Group by vulnerability class. Each sink MUST cite the specific source file and l
 
 #### SQL Injection Sinks
 - **Endpoint:** /rest/products/search — `q` parameter
-  - **Source:** routes/search.ts:NN — `models.sequelize.query("SELECT ... '" + criteria + "'")`
-  - **Input flow:** req.query.q → criteria → SQL string concatenation
+  - **Source:** routes/search.ts:NN — `models.sequelize.query("SELECT * FROM Products WHERE ((name LIKE '%" + criteria + "%' OR description LIKE '%" + criteria + "%') AND deletedAt IS NULL) ORDER BY name")`
+  - **Input flow:** req.query.q → criteria → SQL string concatenation (NO sanitization)
+  - **Table columns (9):** id, name, description, price, deluxePrice, image, createdAt, updatedAt, deletedAt
   - **Sanitization:** None
+
+- **Endpoint:** /rest/user/login — `email` parameter
+  - **Source:** routes/login.ts:NN — `models.sequelize.query("SELECT * FROM Users WHERE email = '" + req.body.email + "' AND password = '" + security.hash(req.body.password) + "' AND deletedAt IS NULL")`
+  - **Input flow:** req.body.email → SQL string concatenation (password is hashed first, so inject via email only)
+  - **Sanitization:** None on email field
 
 #### XSS Sinks
 - **Endpoint:** /api/Feedbacks — comment field

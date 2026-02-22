@@ -6,7 +6,7 @@ All references in the report must use {{TARGET_URL}}.
 
 ## Objective
 
-Synthesise all exploitation findings into a **professional penetration test report** for the OWASP Juice Shop at {{TARGET_URL}}. The report must be suitable for a technical audience and include executive summary, methodology, detailed findings with evidence, and actionable recommendations.
+Synthesise all exploitation findings into a **professional penetration test report** for the OWASP Juice Shop at {{TARGET_URL}}. The report must be suitable for a technical audience (developers, security engineers, CISOs) and include an executive summary, methodology, detailed findings with CVSS v3.1 scores and evidence, and actionable recommendations.
 
 ## Input: Exploitation Findings
 
@@ -14,11 +14,14 @@ Synthesise all exploitation findings into a **professional penetration test repo
 
 ## Report Instructions
 
-1. **Aggregate and deduplicate** findings from injection and XSS exploitation phases.
-2. **Assign CVSS v3.1 scores** to each finding if not already scored.
-3. **Sort findings by severity** (Critical → High → Medium → Low).
-4. **Write clear recommendations** for each finding — specific remediation steps, not generic advice.
-5. **Include scope limitations** — we only tested SQL injection and XSS; other vulnerability classes were out of scope.
+1. **Aggregate and deduplicate** findings from injection and XSS exploitation phases. If both phases found the same endpoint/vulnerability combination, merge into a single finding.
+2. **Assign CVSS v3.1 scores** to each finding with full vector strings (e.g., `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`).
+3. **Sort findings by severity** (Critical → High → Medium → Low → Informational).
+4. **Assign CWE IDs** — SQL injection = CWE-89, XSS = CWE-79 (use subtypes where appropriate: CWE-79.1 Reflected, CWE-79.2 Stored).
+5. **Write clear, specific recommendations** — not generic advice but concrete remediation steps referencing the actual code/endpoint.
+6. **Include evidence references** — cite screenshot paths, dialog captures, HTTP response excerpts from the findings.
+7. **Handle partial data gracefully** — if only injection OR XSS findings are available, produce a complete report for the available data. Never leave empty sections — state what was tested and what wasn't.
+8. **Include scope limitations** — we only tested SQL injection and XSS; other vulnerability classes were out of scope.
 
 ## Required Output Format
 
@@ -31,16 +34,28 @@ Produce a single markdown document with ALL of the following sections:
 **Date:** [current date]
 **Scope:** SQL Injection, Cross-Site Scripting (XSS)
 **Tool:** PenteraX Agentic Pipeline
+**Classification:** Confidential
 
 ---
 
 ## Executive Summary
 
-[2–3 paragraphs summarising:
-- What was tested (Juice Shop at {{TARGET_URL}})
-- How many vulnerabilities were found and their severity breakdown
-- Overall risk assessment
-- Top recommendation]
+[2–3 concise paragraphs summarising:
+- What was tested (Juice Shop at {{TARGET_URL}}, scope: SQLi + XSS)
+- Total vulnerabilities found, broken down by severity (Critical: N, High: N, Medium: N, Low: N)
+- The most impactful findings in business terms (e.g., "complete database compromise", "authentication bypass")
+- Overall risk rating (Critical/High/Medium/Low) with justification
+- Top 3 priority recommendations]
+
+## Severity Summary
+
+| Severity | Count | Highest CVSS |
+|----------|-------|-------------|
+| Critical | N | X.Y |
+| High | N | X.Y |
+| Medium | N | X.Y |
+| Low | N | X.Y |
+| **Total** | **N** | |
 
 ## Scope & Methodology
 
@@ -55,58 +70,76 @@ Produce a single markdown document with ALL of the following sections:
 - Social engineering
 
 ### Methodology
-1. **Reconnaissance:** Automated and manual enumeration of endpoints, technology stack, and attack surface
-2. **Analysis:** Hypothesis generation based on recon data and known CVEs
-3. **Exploitation:** Proof-of-concept execution against identified attack vectors
-4. **Reporting:** Aggregation and CVSS scoring of confirmed findings
+1. **Reconnaissance:** Automated source code analysis, endpoint enumeration, technology stack identification, and network scanning
+2. **Analysis:** Hypothesis generation based on recon data, known CVEs, and source-code-derived query shapes
+3. **Exploitation:** Proof-of-concept execution using both manual HTTP testing (curl) and Playwright browser automation for DOM-level XSS proof
+4. **Reporting:** Aggregation, deduplication, CVSS v3.1 scoring, and remediation planning
+
+### Tools Used
+- **PenteraX Agentic Pipeline** — AI-driven orchestration of recon → analysis → exploit → report phases
+- **Playwright** — Headless Chromium browser automation for XSS proof capture (dialog events, DOM inspection, screenshots)
+- **curl** — Manual HTTP request testing for injection payloads
+- **nmap** — Network service enumeration
 
 ## Findings
 
-[For EACH finding, reproduce the structured format from the exploitation phase:]
+[For EACH finding, use this structured format, sorted by severity:]
 
-### Finding 1: [Title]
+### Finding N: [Descriptive Title]
 | Field | Value |
 |-------|-------|
-| **Vulnerability** | [type] |
+| **Vulnerability** | [specific type, e.g., "Union-based SQL Injection"] |
 | **Endpoint** | [METHOD /path] |
 | **Severity** | [CRITICAL/HIGH/MEDIUM/LOW] |
-| **CVSS v3.1** | [X.Y] |
-| **CWE** | [CWE-XX] |
+| **CVSS v3.1** | [X.Y] ([CVSS:3.1/AV:../AC:../PR:../UI:../S:../C:../I:../A:..]) |
+| **CWE** | [CWE-XX — Name] |
 | **CVE** | [CVE-XXXX-XXXX if applicable, or N/A] |
 
 **Description:**
-[1–2 paragraphs explaining the vulnerability, its root cause, and its impact]
+[1–2 paragraphs: what the vulnerability is, its root cause in the code, and why it exists]
 
 **Proof of Concept:**
-[Include the HTTP request/response evidence from the exploitation phase]
+```
+[The actual HTTP request/response OR Playwright command sequence WITH response data.
+Include dialog captures for XSS, response body excerpts for SQLi.
+Reference screenshot paths where applicable: `deliverables/evidence/<file>.png`]
+```
 
 **Impact:**
-[What an attacker could achieve: data theft, authentication bypass, session hijacking, etc.]
+[What an attacker could achieve: data theft, authentication bypass, session hijacking, account takeover, etc. Be specific about the business impact.]
 
 **Recommendation:**
-[Specific remediation steps — NOT generic advice like "sanitize input"]
+[Specific, actionable remediation steps. Reference the actual endpoint and code pattern. Example:
+- Replace string concatenation with parameterized queries in `routes/search.ts:23`
+- Use `sequelize.query(sql, { replacements: [...], type: QueryTypes.SELECT })` instead of template literals
+NOT generic advice like "sanitize input"]
 
 ---
 
-### Finding 2: [Title]
+### Finding N+1: [Title]
 ...
 
-## Evidence & Proof
+## Evidence & Proof Summary
 
-[Consolidated evidence section — reference each finding's proof]
+| Finding | Evidence Type | Reference |
+|---------|--------------|-----------|
+| Finding 1 | HTTP Response | Response body showing all 37 products (18,758 bytes) |
+| Finding 2 | HTTP Response | CREATE TABLE statements from sqlite_master |
+| Finding N | Playwright Dialog | dialog: {type: "alert", message: "xss"} |
+| Finding N | Screenshot | `deliverables/evidence/xss-search-dom.png` |
 
 ## Recommendations
 
-### Immediate (Critical/High)
-1. [Specific action for finding X]
+### Immediate (Critical/High — implement within 1 week)
+1. [Specific action with code reference]
 2. ...
 
-### Short-term (Medium)
-1. [Specific action for finding Y]
+### Short-term (Medium — implement within 1 month)
+1. [Specific action]
 2. ...
 
-### Long-term
-1. [Architectural improvements]
+### Long-term (Architectural improvements)
+1. [Strategic recommendation]
 2. ...
 
 ## Scope Limitations
@@ -123,15 +156,38 @@ This assessment was limited to **SQL Injection and Cross-Site Scripting** only. 
 A comprehensive assessment covering all OWASP Top 10 categories is recommended.
 ```
 
+## Handling Partial Data
+
+If ONLY injection findings are available:
+- Include all injection findings as normal
+- In the Executive Summary, note: "XSS testing was conducted but did not yield confirmed findings" (or whatever is appropriate)
+- In the Severity Summary, show the actual counts
+- In the Scope section, note that both injection and XSS were in scope
+
+If ONLY XSS findings are available:
+- Include all XSS findings as normal
+- Note the injection testing status similarly
+
+If NO findings are available:
+- Produce a report that honestly states no exploitable vulnerabilities were confirmed
+- Include the methodology and scope sections normally
+- Note any interesting observations (e.g., "input sanitization was observed but not bypassed")
+
 ## Quality Checklist
 
-Before producing the final report, verify:
-- [ ] Every finding has a CVSS v3.1 score
-- [ ] Every finding has proof (HTTP request/response)
-- [ ] Findings are sorted by severity (Critical first)
-- [ ] No duplicate findings (same endpoint + same vulnerability type)
-- [ ] Recommendations are specific (not "use parameterized queries" without context)
-- [ ] Target URL is {{TARGET_URL}} everywhere (no localhost references)
-- [ ] Scope limitations section is present
+Before producing the final report, verify ALL of these:
+- [ ] Every finding has a **CVSS v3.1 score** with full vector string
+- [ ] Every finding has a **CWE ID** (CWE-89 for SQLi, CWE-79 for XSS)
+- [ ] Every finding has specific **proof** (HTTP request/response, Playwright dialog capture, or screenshot reference)
+- [ ] Findings are **sorted by severity** (Critical first, then High, Medium, Low)
+- [ ] **No duplicate findings** (same endpoint + same vulnerability type = merge into one finding)
+- [ ] Recommendations are **specific** to the actual code/endpoint (not generic "use parameterized queries")
+- [ ] Target URL is **{{TARGET_URL}} everywhere** (no localhost references)
+- [ ] **Scope limitations** section is present and lists untested OWASP categories
+- [ ] **Executive Summary** includes vulnerability count breakdown and overall risk rating
+- [ ] **Severity Summary** table is present with counts by severity level
+- [ ] **Evidence & Proof Summary** table references all evidence types and paths
+- [ ] Report handles **partial data gracefully** — no empty sections, appropriate notes if one vuln class is missing
+- [ ] All Playwright screenshot paths use the format `deliverables/evidence/<filename>.png`
 
 Save the output as `pentest_report.md` using the `save_deliverable` tool.

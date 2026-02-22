@@ -16,6 +16,7 @@
 - [ ] `pentest_report.md` is professional and complete
 - [ ] Total run time < 10 minutes
 - [ ] Total cost < $25
+- [ ] Playwright browser automation produces visible XSS evidence (dialog capture + screenshots)
 
 ---
 
@@ -25,7 +26,7 @@
 
 - [ ] **Rehearsal 1 — Full live run:**
   - [ ] Verify AWS Juice Shop instance running at `http://54.146.141.88:3000`
-  - [ ] Run `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=./repos/juice-shop`
+  - [ ] Run `python -m src --cli pipeline --target-url http://54.146.141.88:3000`
   - [ ] Time each phase
   - [ ] Note any issues (slow phases, failed agents, formatting problems)
   - [ ] Check all deliverables:
@@ -33,7 +34,7 @@
     - [ ] `hypotheses_injection.md` — has specific attack hypotheses
     - [ ] `hypotheses_xss.md` — has specific XSS hypotheses
     - [ ] `findings_injection.md` — has proven SQL injection with evidence
-    - [ ] `findings_xss.md` — has proven XSS with Playwright evidence
+    - [ ] `findings_xss.md` — has proven XSS with Playwright evidence (dialog capture, screenshots in `deliverables/evidence/`)
     - [ ] `pentest_report.md` — professional, CVSS scores, all findings
 - [ ] **Fix issues from Rehearsal 1:**
   - [ ] List all issues found
@@ -53,9 +54,9 @@
 ### Demo Preparation [ALL]
 
 - [ ] Prepare talking points for each engineer:
-  - [ ] E1: Architecture decisions, SDK usage, pipeline design, cost model
+  - [ ] E1: Architecture decisions, Python pipeline design, Playwright integration (`PlaywrightManager` singleton), cost model
   - [ ] E2: Source code analysis strategy, injection discovery, exploitation technique
-  - [ ] E3: XSS approach, Playwright automation, report quality, what's next
+  - [ ] E3: XSS approach, Playwright browser automation (in-process `sync_api`, dialog capture, `wait_until="load"`), report quality, what's next
 - [ ] Prepare answers for expected questions:
   - [ ] "How does this differ from existing scanners?"
   - [ ] "What's the cost per scan?"

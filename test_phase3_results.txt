@@ -1,0 +1,53 @@
+﻿  [INFO] Anthropic API key detected -- agent smoke tests will run
+
+======================================================================
+  1. ATOMIC save_deliverable() -- CONCURRENT WRITES (Step 3.1)
+======================================================================
+  [PASS] Concurrent save_deliverable: all 20 files written -- 20/20 succeeded, errors: []
+  [PASS] Concurrent save: no .tmp files left -- clean
+  [PASS] Concurrent save: content integrity verified
+  [PASS] Atomic write retry: succeeded after PermissionError
+  [PASS] Atomic write retry: os.replace called >1 time -- called 2 times
+  [PASS] Crash cleanup: no .tmp files after failure -- clean
+
+======================================================================
+  2. DYNAMIC TECH-STACK EXTRACTION (Step 3.2)
+======================================================================
+  [PASS] Tech-stack extraction: returns list
+  [PASS] Tech-stack extraction: found 4 entries -- got 4
+  [PASS] Tech-stack extraction: 'express' found
+  [PASS] Tech-stack extraction: 'angular' found
+  [PASS] Tech-stack extraction: 'sequelize' found
+  [PASS] Tech-stack extraction: express version correct
+  [PASS] Tech-stack fallback: returns list
+  [PASS] Tech-stack fallback: has entries (hardcoded defaults) -- 4 entries
+  [PASS] Tech-stack fallback: includes 'express'
+  [PASS] Tech-stack empty section: uses fallback -- got 4 entries
+  [PASS] Tech-stack bullet format: extracts entries -- got 3 entries
+
+======================================================================
+  3. STOP-EVENT PROPAGATION (Step 3.3)
+======================================================================
+  [PASS] _check_stop raises PipelineAbortedError when set
+  [PASS] _check_stop(None) does not raise
+  [PASS] _check_stop(unset event) does not raise
+  [PASS] run_phase_recon respects stop_event
+  [PASS] run_phase_analysis respects stop_event
+  [PASS] run_phase_exploit respects stop_event
+  [PASS] run_phase_report respects stop_event
+  [PASS] run_pipeline: aborted (no phases completed or partial)
+  [03:19:16] >> Phase 0: Recon starting...
+python.exe : Phase 0: Recon FAILED with exception: Pipeline aborted 
+by user.
+At line:1 char:1
++ & ".venv\Scripts\python.exe" test_phase3.py 2>&1 | Out-File 
+-FilePath ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Phase 0: Recon ...borted 
+    by user.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  [03:19:16] [!!] Phase 0: Recon FAILED (0.0s, 0 deliverable(s))
+  Error: Unhandled exception: Pipeline aborted by user.
+  Deliverable gate [recon]: MISSING ['recon_report.md'] ù downstream 
+phases may be degraded

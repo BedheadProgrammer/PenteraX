@@ -234,6 +234,24 @@ function printResult(result: PipelineResultTS): void {
     }
   }
 
+  // Agent execution stats
+  if (result.agentStats.length > 0) {
+    console.log("");
+    console.log("═".repeat(72));
+    console.log("  Agent Execution Summary");
+    console.log("═".repeat(72));
+    console.log(`  ${"Agent".padEnd(28)} ${"Status".padStart(6)}  ${"Turns".padStart(5)}  ${"Cost".padStart(8)}  ${"Duration".padStart(10)}`);
+    console.log("  " + "-".repeat(68));
+    for (const s of result.agentStats) {
+      console.log(`  ${s.agentName.padEnd(28)} ${s.status.padStart(6)}  ${String(s.turns).padStart(5)}  $${s.costUsd.toFixed(4).padStart(7)}  ${s.durationSeconds.toFixed(1).padStart(9)}s`);
+    }
+    console.log("═".repeat(72));
+  }
+
+  if (result.totalCostUsd > 0) {
+    console.log(`\n  Total API cost: $${result.totalCostUsd.toFixed(4)}`);
+  }
+
   // Deliverable verification
   console.log("");
   const outputDir = path.resolve("deliverables");
