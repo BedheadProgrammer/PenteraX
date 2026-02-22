@@ -31,7 +31,7 @@ OWASP Juice Shop is a deliberately insecure web application used for security tr
 | `/rest/user/whoami` | GET | Current user info (requires JWT) |
 | `/rest/basket/:id` | GET | Shopping basket contents |
 | `/rest/basket/:id/checkout` | POST | Basket checkout — **cross-user checkout target** |
-| `/rest/saveLoginIp` | GET | Logs user IP — **X-Header XSS sink** |
+| `/rest/saveLoginIp` | GET | Logs user IP from headers — **stored XSS sink via X-Forwarded-For/True-Client-IP headers** |
 | `/rest/deluxe-membership` | GET/POST | Deluxe membership upgrade — **authz bypass target** |
 | `/rest/memories` | GET/POST | Photo memories (file upload) — **unauthenticated access** |
 | `/rest/user/security-question?email=` | GET | Security question lookup — **account enumeration** |
