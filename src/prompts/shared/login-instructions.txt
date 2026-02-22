@@ -1,0 +1,88 @@
+# Login Instructions — Juice Shop Authentication
+
+Each agent handles its own authentication. There is NO cross-agent session state. If you need an authenticated session, follow these steps from scratch.
+
+---
+
+## Default Credentials
+
+| Account | Email | Password | Role |
+|---------|-------|----------|------|
+| Admin | `admin@juice-sh.op` | `admin123` | Administrator |
+| Demo | `demo` | `demo` | Customer |
+
+**Always try the admin account first** — it has access to the admin panel at `/#/administration` and all API endpoints.
+
+---
+
+## Login via API (Preferred — Faster)
+
+```bash
+curl -s -X POST "{{TARGET_URL}}/rest/user/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@juice-sh.op","password":"admin123"}'
+```
+
+**Response:**
+```json
+{
+  "authentication": {
+    "token": "eyJhbGciOiJSUzI1NiIs...",
+    "bid": 1,
+    "umail": "admin@juice-sh.op"
+  }
+}
+```
+
+**Extract the token** from `authentication.token` and use it in subsequent requests:
+```bash
+curl -H "Authorization: Bearer <TOKEN>" "{{TARGET_URL}}/rest/user/whoami"
+```
+
+---
+
+## Login via Playwright (When Browser Interaction Is Needed)
+
+1. Navigate to `{{TARGET_URL}}/#/login`
+2. Wait for the Angular form to render (look for `#loginButton` or `[aria-label="Login"]`)
+3. Dismiss any welcome/cookie banners:
+   - Click `[aria-label="Close Welcome Banner"]` if present
+   - Click `a.cc-dismiss` (cookie consent) if present
+4. Type `admin@juice-sh.op` into the email field (`#email` or `input[name="email"]`)
+5. Type `admin123` into the password field (`#password` or `input[name="password"]`)
+6. Click the login button (`#loginButton`)
+7. **Capture the JWT** from the network response (see network-interception.txt)
+
+### Common Pitfalls
+- The welcome banner overlays the login form — ALWAYS dismiss it first.
+- Angular may take 1-2 seconds to render. Wait for the `#loginButton` element before typing.
+- After login, the app redirects to `/#/search`. Wait for this before proceeding.
+- The JWT is stored in `localStorage` as `token` — you can also extract it via:
+  ```javascript
+  browser_evaluate("localStorage.getItem('token')")
+  ```
+
+---
+
+## Token Lifetime & Refresh
+
+- JWT tokens are valid for **24 hours** by default.
+- No refresh mechanism — if a token expires, re-authenticate.
+- For a typical pipeline run (< 30 minutes), a single login is sufficient.
+
+---
+
+## Authenticated Endpoints
+
+These endpoints REQUIRE a valid JWT in the `Authorization: Bearer` header:
+
+| Endpoint | Method | Notes |
+|----------|--------|-------|
+| `/rest/user/whoami` | GET | Current user identity |
+| `/rest/basket/:id` | GET | Shopping basket (own basket only) |
+| `/api/Feedbacks` | POST | Submit feedback (captcha may apply) |
+| `/api/Complaints` | POST | File a complaint (file upload) |
+| `/api/Recycles` | POST | Submit recycle request |
+| `/api/Users/:id` | PUT/DELETE | Modify/delete user (admin only) |
+| `/rest/deluxe-membership` | POST | Upgrade to deluxe |
+| `/#/administration` | Page | Admin panel (admin role required) |

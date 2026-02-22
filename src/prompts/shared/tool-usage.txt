@@ -1,0 +1,130 @@
+# Tool Usage Reference
+
+This document lists ALL tools available to agents during pipeline execution. Use them — do NOT attempt to replicate their functionality manually.
+
+---
+
+## 1. Shell Tools (via terminal / subprocess)
+
+### nmap — Network Scanner
+```bash
+# Service version detection on common web ports (AWS-safe flags)
+nmap -sV -p 80,443,3000,8080,8443 -Pn --host-timeout 120s -oX /tmp/nmap_scan.xml <HOST>
+
+# With HTTP enumeration scripts
+nmap -sV -p 80,443,3000 --script http-enum,http-title,http-headers,http-methods -Pn --host-timeout 120s -oX /tmp/nmap_scan.xml <HOST>
+```
+- Always use `-Pn` for AWS targets (ICMP often blocked).
+- Always use `--host-timeout 120s` (prevents hangs on slow responses).
+- Output to XML (`-oX`) so the `network_recon_parse_nmap` skill can parse it.
+
+### whatweb — Web Technology Fingerprinter
+```bash
+whatweb --color=never -a 3 <TARGET_URL>
+```
+- Aggression level 3 is sufficient. Do not exceed 4.
+
+### sqlmap — SQL Injection Automation
+```bash
+# Test a single GET parameter
+sqlmap -u "<TARGET_URL>/rest/products/search?q=test" -p q --batch --level=3 --risk=2 --dbms=sqlite --technique=BEUST --threads=4
+
+# Test a POST JSON body
+sqlmap -u "<TARGET_URL>/rest/user/login" --data='{"email":"test","password":"test"}' -p email --batch --level=3 --risk=2 --dbms=sqlite
+```
+- Always use `--batch` (non-interactive).
+- Always set `--dbms=sqlite` for Juice Shop.
+- `--technique=BEUST` covers Boolean, Error, Union, Stacked, Time-based.
+- Start with `--level=3 --risk=2`; escalate only if needed.
+
+### curl — HTTP Client
+```bash
+# GET request with verbose headers
+curl -v "<TARGET_URL>/rest/products/search?q=test"
+
+# POST JSON
+curl -X POST "<TARGET_URL>/rest/user/login" -H "Content-Type: application/json" -d '{"email":"admin@juice-sh.op","password":"admin123"}'
+
+# Authenticated request
+curl -H "Authorization: Bearer <TOKEN>" "<TARGET_URL>/rest/user/whoami"
+```
+
+### File System (source code analysis)
+```bash
+# Search for patterns in source code
+grep -rn "raw\|query\|exec\|eval\|innerHTML\|dangerouslySetInnerHTML" repos/juice-shop/routes/
+grep -rn "sequelize.query\|db.query" repos/juice-shop/
+
+# Find route definitions
+grep -rn "app.get\|app.post\|app.put\|app.delete\|router\." repos/juice-shop/routes/
+
+# Read specific files
+cat repos/juice-shop/routes/search.ts
+head -100 repos/juice-shop/server.ts
+
+# List structure
+find repos/juice-shop/routes -name "*.ts" -o -name "*.js" | head -30
+```
+
+---
+
+## 2. Playwright MCP (Browser Automation)
+
+Playwright is available as an MCP server. Use it for:
+- Navigating to pages and interacting with the Angular SPA
+- Capturing network traffic (request/response pairs)
+- Triggering XSS payloads and capturing dialog events
+- Taking screenshots as proof of exploitation
+
+### Key Playwright actions:
+```
+browser_navigate — Go to a URL
+browser_click — Click an element (by CSS selector or text)
+browser_type — Type into an input field
+browser_screenshot — Capture the current page as an image
+browser_network_requests — List captured network requests
+browser_evaluate — Execute JavaScript in the page context
+```
+
+### Playwright tips:
+- Juice Shop is an Angular SPA — routes use `/#/` fragments (e.g., `/#/login`, `/#/search`)
+- Wait for Angular to render after navigation before interacting
+- Use `browser_evaluate` to check for DOM-based XSS evidence (`document.querySelector(...)`)
+- Dialog events (alert/confirm/prompt) are automatically captured when XSS triggers `alert()`
+
+---
+
+## 3. save_deliverable — Pipeline Output Tool
+
+Every phase MUST save its output via the `save_deliverable` tool:
+
+```
+Tool: save_deliverable
+Arguments:
+  name: "recon_report.md"        (or hypotheses_injection.md, findings_xss.md, etc.)
+  content: "<full markdown content>"
+```
+
+- The name MUST match the expected deliverable filename exactly.
+- Content MUST follow the schema defined in the output-format shared doc.
+- This is an MCP tool — invoke it through the tool-use interface, not via shell.
+
+---
+
+## 4. Skill Tools (via pipeline skill registry)
+
+### network_recon_parse_nmap
+Parses nmap XML output into structured JSON.
+```
+Input: path to nmap XML file (e.g., /tmp/nmap_scan.xml)
+Output: JSON with hosts, ports, services, versions
+```
+
+### vulnerability_lookup_cve
+Queries CVEs for a product/version pair.
+```
+Input: {"product": "express", "version": "4.17.1"}
+Output: list of matching CVEs with descriptions and scores
+```
+
+Use these tools BEFORE writing analysis — they provide structured data that eliminates guesswork.

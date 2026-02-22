@@ -23,10 +23,14 @@ Each hypothesis must be specific, actionable, and grounded in evidence from the 
 ## Analysis Instructions
 
 1. **Review all endpoints** from the recon report and identify those that accept user-controlled input which could reach a database query or OS command.
-2. **Cross-reference with known CVEs** — if a CVE describes SQL injection in a specific Juice Shop component/version, create a targeted hypothesis for it.
-3. **Prioritise by exploitability:**
-   - Endpoints with direct parameter reflection in SQL queries (highest priority)
-   - Endpoints using ORM methods that may have raw query fallbacks
+2. **Cross-reference sinks with source code evidence** — the recon report's Identified Sinks section now includes source file and line number. For each sink:
+   - Verify the input flow: which `req.query` / `req.body` / `req.params` field enters the sink?
+   - Is there any sanitization between the entry point and the sink?
+   - What is the exact SQL query shape (for crafting precise payloads)?
+3. **Cross-reference with known CVEs** — if a CVE describes SQL injection in a specific Juice Shop component/version, create a targeted hypothesis for it.
+4. **Prioritise by exploitability:**
+   - Endpoints with direct string concatenation into SQL (highest priority — source code confirmed)
+   - Endpoints using ORM methods that may have raw query fallbacks (source code shows `raw: true`)
    - Endpoints with indirect injection vectors (e.g., JSON body fields parsed into queries)
 4. **Consider Juice Shop specifics:**
    - Sequelize ORM with known raw query patterns
