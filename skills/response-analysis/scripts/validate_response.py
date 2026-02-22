@@ -16,6 +16,60 @@ import re
 import sys
 
 
+# ---------------------------------------------------------------------------
+# Cross-cutting validation helpers (Phase 4 — Step 4.5)
+# ---------------------------------------------------------------------------
+
+def _check_target_url_consistency(content: str) -> list[str]:
+    """Warn if deliverable references localhost / 127.0.0.1 instead of the AWS target."""
+    errors: list[str] = []
+    localhost_patterns = [
+        r"https?://localhost[:/]",
+        r"https?://127\.0\.0\.1[:/]",
+        r"https?://\[::1\][:/]",
+    ]
+    for pat in localhost_patterns:
+        matches = re.findall(pat, content, re.IGNORECASE)
+        if matches:
+            errors.append(
+                f"Deliverable references localhost ({matches[0]}). "
+                "Expected the remote AWS TARGET_URL instead."
+            )
+    return errors
+
+
+def _check_evidence_authenticity(content: str) -> list[str]:
+    """Sanity-check that HTTP status codes in evidence blocks are plausible."""
+    errors: list[str] = []
+    # Match patterns like "HTTP/1.1 999" or "status: 999" or "HTTP 999"
+    status_codes = re.findall(
+        r"(?:HTTP/\d\.\d\s+|status[:\s]+)(\d{3})", content, re.IGNORECASE
+    )
+    for code_str in status_codes:
+        code = int(code_str)
+        if code < 100 or code > 599:
+            errors.append(
+                f"Implausible HTTP status code {code} in evidence "
+                "(valid range: 100–599)"
+            )
+    return errors
+
+
+def _check_finding_deduplication(content: str) -> list[str]:
+    """Warn if the same CVE ID appears multiple times in findings."""
+    errors: list[str] = []
+    cves = re.findall(r"(CVE-\d{4}-\d{4,})", content)
+    seen: dict[str, int] = {}
+    for cve in cves:
+        seen[cve] = seen.get(cve, 0) + 1
+    for cve, count in seen.items():
+        if count > 1:
+            errors.append(
+                f"Duplicate CVE reference: {cve} appears {count} times"
+            )
+    return errors
+
+
 def validate_recon_report(content: str) -> list[str]:
     """Validate a recon_report.md deliverable."""
     errors = []
@@ -44,6 +98,9 @@ def validate_recon_report(content: str) -> list[str]:
             errors.append(
                 "## Endpoints table must include Route and Method columns"
             )
+
+    # Cross-cutting: target URL consistency check
+    errors.extend(_check_target_url_consistency(content))
 
     return errors
 
@@ -124,6 +181,11 @@ def validate_findings(content: str) -> list[str]:
                     "must contain actual HTTP response data, extracted records, or DOM content"
                 )
 
+    # Cross-cutting: target URL consistency, evidence authenticity, deduplication
+    errors.extend(_check_target_url_consistency(content))
+    errors.extend(_check_evidence_authenticity(content))
+    errors.extend(_check_finding_deduplication(content))
+
     return errors
 
 
@@ -139,6 +201,11 @@ def validate_pentest_report(content: str) -> list[str]:
     for section in required_sections:
         if section not in content:
             errors.append(f"Missing required section: {section}")
+
+    # Cross-cutting: target URL consistency and evidence checks
+    errors.extend(_check_target_url_consistency(content))
+    errors.extend(_check_evidence_authenticity(content))
+    errors.extend(_check_finding_deduplication(content))
 
     return errors
 

@@ -1,12 +1,15 @@
-"""CLI entrypoint for the SPAIDER Agent pipeline.
+"""CLI entrypoint for the PenteraX agentic pentest pipeline.
 
 Subcommands:
-    python -m src pipeline       — Run the full 4-phase pipeline
-    python -m src skills --list  — List discovered skills
-    python -m src skills --setup — Verify skill directories and dependencies
-    python -m src skills --test <name> — Run a quick test of a skill
-    python -m src validate <file> <schema_type> — Validate a deliverable
-    python -m src lookup --product <p> --version <v> — CVE lookup
+    python -m src --cli pipeline       — Run the full 4-phase pipeline
+    python -m src --cli skills --list  — List discovered skills
+    python -m src --cli skills --setup — Verify skill directories and deps
+    python -m src --cli skills --test <name> — Run a quick test
+    python -m src --cli validate <file> <schema_type> — Validate a deliverable
+    python -m src --cli lookup --product <p> --version <v> — CVE lookup
+
+Direct headless invocation (Phase 3 shorthand):
+    python -m src --cli --target-url http://54.146.141.88:3000 --api-key sk-ant-...
 """
 
 from __future__ import annotations
@@ -14,9 +17,16 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import signal
 import sys
+import threading
 from pathlib import Path
 
+from .config import AppConfig
+from .exceptions import PipelineAbortedError
+from .logging_handler import setup_logging
+from .pipeline import run_pipeline, PipelineConfig, DELIVERABLES_DIR, load_replay_deliverables, save_replay_snapshot
+from .preflight import run_preflight
 from .skills.skill_loader import SkillRegistry, PROJECT_ROOT, SKILLS_DIR
 from .skills.skill_wrappers import (
     parse_nmap,
@@ -24,19 +34,12 @@ from .skills.skill_wrappers import (
     lookup_cve,
     format_known_vulns_for_prompt,
 )
-from .pipeline import run_pipeline, PipelineConfig
-from .agent_loop import setup_agentic_loop, AgenticLoopConfig
 
-logger = logging.getLogger("spaider.cli")
+logger = logging.getLogger("penterax.cli")
 
 
 def _setup_logging(verbose: bool = False) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    setup_logging(verbose=verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -264,25 +267,119 @@ def cmd_lookup(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_pipeline(args: argparse.Namespace) -> int:
-    """Handle the ``pipeline`` subcommand."""
-    config = PipelineConfig(
+    """Handle the ``pipeline`` subcommand — full agentic run."""
+    # Build AppConfig from CLI args
+    cfg = AppConfig(
         target_url=args.target,
-        repo_path=args.repo,
+        anthropic_api_key=getattr(args, "api_key", "") or "",
         output_dir=Path(args.output),
         max_retries=args.retries,
+        max_budget_usd=float(getattr(args, "budget", 10.0) or 10.0),
         verbose=args.verbose,
     )
 
-    print(f"Starting SPAIDER pipeline")
-    print(f"  Target:  {config.target_url}")
-    print(f"  Repo:    {config.repo_path}")
-    print(f"  Output:  {config.output_dir}")
-    print(f"  Retries: {config.max_retries}")
+    return _run_pipeline_from_config(cfg, resume_from=getattr(args, "resume_from", None), replay=getattr(args, "replay", False))
+
+
+# ---------------------------------------------------------------------------
+# Direct headless invocation (--target-url / --api-key shorthand)
+# ---------------------------------------------------------------------------
+
+def cmd_direct(args: argparse.Namespace) -> int:
+    """Direct pipeline run from top-level flags (no subcommand)."""
+    cfg = AppConfig(
+        target_url=args.target_url,
+        anthropic_api_key=args.api_key,
+        output_dir=Path(args.output_dir) if args.output_dir else DELIVERABLES_DIR,
+        max_retries=int(args.max_retries or 3),
+        max_budget_usd=float(args.budget or 10.0),
+        verbose=args.verbose,
+    )
+    return _run_pipeline_from_config(cfg, resume_from=args.resume_from, replay=args.replay)
+
+
+def _run_pipeline_from_config(
+    cfg: AppConfig,
+    *,
+    resume_from: str | None = None,
+    replay: bool = False,
+) -> int:
+    """Shared logic for running the pipeline from a config."""
+    errors = cfg.validate()
+    if errors and not replay:
+        for e in errors:
+            print(f"  Config error: {e}")
+        return 1
+
+    # Setup logging to file as well
+    setup_logging(verbose=cfg.verbose, log_dir=cfg.output_dir)
+
+    pipeline_cfg = cfg.to_pipeline_config()
+
+    print(f"Starting PenteraX pipeline")
+    print(f"  Target:  {pipeline_cfg.target_url}")
+    print(f"  Output:  {pipeline_cfg.output_dir}")
+    print(f"  Retries: {pipeline_cfg.max_retries}")
+    print(f"  Budget:  ${cfg.max_budget_usd:.2f}")
+    if resume_from:
+        print(f"  Resume:  from '{resume_from}' phase")
+    if replay:
+        print(f"\n  ╔══════════════════════════════════════════╗")
+        print(f"  ║          [REPLAY MODE]                  ║")
+        print(f"  ║  Using pre-recorded deliverables         ║")
+        print(f"  ╚══════════════════════════════════════════╝\n")
+        restored = load_replay_deliverables(pipeline_cfg.output_dir)
+        if not restored:
+            print("  No replay deliverables found. Run a full pipeline first,")
+            print("  then use 'save-replay' or copy files to deliverables/replay/.")
+            return 1
+        print(f"  Restored {len(restored)} deliverable(s) from replay:")
+        for r in restored:
+            print(f"    - {r}")
+        print()
     print()
 
-    # No agent_runner — the pipeline validates existing deliverables
-    # or skips agent execution phases
-    result = run_pipeline(config=config)
+    # Preflight
+    if not replay:
+        pf = run_preflight(cfg)
+        print(pf.summary)
+        if not pf.all_critical_passed:
+            print("\nPre-flight FAILED — aborting.")
+            return 1
+        print()
+
+    # SIGINT → cooperative stop
+    stop_event = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stop_event.set())
+
+    # Build agent runner (None for replay mode)
+    agent_runner_fn = None
+    if not replay:
+        from .agent_runner import AgentRunner
+        from .agent_loop import MCP_TOOLS, SkillToolDispatcher
+        from .skills.skill_loader import SkillRegistry as SR
+
+        runner = AgentRunner(
+            api_key=cfg.anthropic_api_key,
+            max_budget_usd=cfg.max_budget_usd,
+            stop_event=stop_event,
+        )
+        registry = SR()
+        dispatcher = SkillToolDispatcher(registry)
+        runner._tools = MCP_TOOLS
+        runner._tool_dispatcher = dispatcher
+        agent_runner_fn = runner.run
+
+    try:
+        result = run_pipeline(
+            config=pipeline_cfg,
+            agent_runner=agent_runner_fn,
+            stop_event=stop_event,
+            resume_from=resume_from,
+        )
+    except PipelineAbortedError:
+        print("\nPipeline aborted by user.")
+        return 130
 
     print(f"\n{'=' * 60}")
     print(f"Pipeline complete in {result.total_duration_seconds:.1f}s")
@@ -299,6 +396,9 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
             for err in phase.errors:
                 print(f"         Error: {err}")
 
+    if not replay and agent_runner_fn is not None:
+        print(f"\n  Total API cost: ${runner.total_cost_usd:.4f}")
+
     return 0 if all(p.success for p in result.phases) else 1
 
 
@@ -308,11 +408,28 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="spaider",
-        description="SPAIDER Agent — Agentic Cybersecurity Pipeline",
+        prog="penterax",
+        description="PenteraX — Agentic Cybersecurity Pipeline",
     )
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable debug logging")
+
+    # Direct-invocation flags (no subcommand needed)
+    parser.add_argument("--target-url", type=str, default="",
+                        help="Target URL for direct pipeline run")
+    parser.add_argument("--api-key", type=str, default="",
+                        help="Anthropic API key")
+    parser.add_argument("--output-dir", type=str, default="",
+                        help="Output directory (default: deliverables/)")
+    parser.add_argument("--max-retries", type=int, default=3,
+                        help="Max retries per phase (default: 3)")
+    parser.add_argument("--budget", type=float, default=10.0,
+                        help="Max API budget in USD (default: 10.0)")
+    parser.add_argument("--resume-from",
+                        choices=["recon", "analysis", "exploit", "report"],
+                        help="Resume pipeline from a specific phase")
+    parser.add_argument("--replay", action="store_true",
+                        help="Use pre-recorded deliverables (no API calls)")
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -347,14 +464,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- pipeline ---
     sp_pipeline = subparsers.add_parser("pipeline", help="Run the full pipeline")
-    sp_pipeline.add_argument("--target", default="http://localhost:3000",
-                             help="Target URL (default: http://localhost:3000)")
+    sp_pipeline.add_argument("--target", default="http://54.146.141.88:3000",
+                             help="Target URL (default: http://54.146.141.88:3000)")
+    sp_pipeline.add_argument("--api-key", type=str, default="",
+                             help="Anthropic API key")
     sp_pipeline.add_argument("--repo", default="./repos/juice-shop",
                              help="Path to target repo")
     sp_pipeline.add_argument("--output", default="./deliverables",
                              help="Output directory for deliverables")
     sp_pipeline.add_argument("--retries", type=int, default=3,
                              help="Max retries per phase (default: 3)")
+    sp_pipeline.add_argument("--budget", type=float, default=10.0,
+                             help="Max API budget in USD (default: 10.0)")
+    sp_pipeline.add_argument("--resume-from",
+                             choices=["recon", "analysis", "exploit", "report"],
+                             help="Resume from a specific phase")
+    sp_pipeline.add_argument("--replay", action="store_true",
+                             help="Use pre-recorded deliverables")
 
     return parser
 
@@ -369,6 +495,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     _setup_logging(args.verbose)
+
+    # Direct invocation: --target-url provided without subcommand
+    if args.target_url and args.command is None:
+        return cmd_direct(args)
 
     if args.command is None:
         parser.print_help()

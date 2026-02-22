@@ -16,11 +16,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import shutil
+import tempfile
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .exceptions import PipelineAbortedError
 from .skills.skill_loader import SkillRegistry, SkillResult, PROJECT_ROOT
 from .skills.skill_wrappers import (
     parse_nmap,
@@ -45,7 +52,7 @@ PROMPTS_DIR = PROJECT_ROOT / "src" / "prompts"
 @dataclass
 class PipelineConfig:
     """Configuration for a full pipeline run."""
-    target_url: str = "http://localhost:3000"
+    target_url: str = "http://54.146.141.88:3000"
     repo_path: str = "./repos/juice-shop"
     output_dir: Path = DELIVERABLES_DIR
     max_retries: int = 3
@@ -103,10 +110,33 @@ def read_deliverable(name: str, output_dir: Path = DELIVERABLES_DIR) -> str:
 
 
 def save_deliverable(name: str, content: str, output_dir: Path = DELIVERABLES_DIR) -> Path:
-    """Write a deliverable file."""
+    """Write a deliverable file atomically.
+
+    Uses write-to-temp + ``os.replace()`` so a crash mid-write never
+    leaves a half-written deliverable on disk.  On Windows,
+    ``os.replace()`` may raise ``PermissionError`` if another process
+    has the file open — we retry up to 3 times with short back-off
+    (Race condition #9 / #14).
+    """
     ensure_dir(output_dir)
     path = output_dir / name
-    path.write_text(content, encoding="utf-8")
+    fd, tmp_path = tempfile.mkstemp(dir=str(output_dir), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        # Atomic replace — retry on Windows PermissionError
+        for attempt in range(3):
+            try:
+                os.replace(tmp_path, str(path))
+                break
+            except PermissionError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.1 * (attempt + 1))
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
     logger.info("Saved deliverable: %s", path)
     return path
 
@@ -121,6 +151,7 @@ def validate_phase_output(
     schema_type: str,
     max_retries: int = 3,
     retry_callback: Callable[[str], str] | None = None,
+    stop_event: threading.Event | None = None,
 ) -> tuple[bool, list[str]]:
     """Validate a deliverable and optionally retry the producing agent.
 
@@ -131,11 +162,15 @@ def validate_phase_output(
         max_retries: Maximum retry attempts.
         retry_callback: If provided, called with the retry-context string;
                         should return the new deliverable content.
+        stop_event: If set, abort retries early (Phase 4 — Step 4.7).
 
     Returns:
         (passed: bool, errors: list[str])
     """
     for attempt in range(1, max_retries + 1):
+        # Check for abort before each retry (Race condition #15)
+        _check_stop(stop_event)
+
         result = validate_deliverable(registry, deliverable_path, schema_type)
 
         if result.success:
@@ -162,10 +197,69 @@ def validate_phase_output(
 # Phase implementations
 # ---------------------------------------------------------------------------
 
+def _extract_tech_stack_from_recon(recon_data: str) -> list[dict[str, str]]:
+    """Parse Technology Stack section from recon_report.md.
+
+    Looks for a ``## Technology Stack`` section and extracts product/version
+    pairs from markdown table rows or ``product version`` lines.
+    Falls back to hardcoded Juice Shop defaults if parsing fails.
+    """
+    FALLBACK: list[dict[str, str]] = [
+        {"product": "express", "version": "4.17.1"},
+        {"product": "angular", "version": "1.6.0"},
+        {"product": "jsonwebtoken", "version": "8.5.1"},
+        {"product": "sequelize", "version": "5.22.5"},
+    ]
+
+    # Try to find a technology stack section
+    section_match = re.search(
+        r"##\s*Technology\s+Stack\b(.*?)(?=\n##\s|\Z)",
+        recon_data,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not section_match:
+        logger.debug("No Technology Stack section found — using fallback tech stack")
+        return FALLBACK
+
+    section = section_match.group(1)
+    parsed: list[dict[str, str]] = []
+
+    # Try markdown table rows: | product | version | ...
+    for row in re.finditer(
+        r"\|\s*([\w.@/-]+)\s*\|\s*([\d][\d.]*\S*)\s*\|", section
+    ):
+        product, version = row.group(1).strip(), row.group(2).strip()
+        if product.lower() not in ("product", "name", "component", "---", "---"):
+            parsed.append({"product": product, "version": version})
+
+    # Try bullet / plain lines: - express 4.17.1 or express: 4.17.1
+    if not parsed:
+        for line in re.finditer(
+            r"[-*]?\s*([\w.@/-]+)[:\s]+([\d][\d.]*\S*)", section
+        ):
+            product, version = line.group(1).strip(), line.group(2).strip()
+            if product.lower() not in ("version",):
+                parsed.append({"product": product, "version": version})
+
+    if parsed:
+        logger.info("Extracted %d tech-stack entries from recon data", len(parsed))
+        return parsed
+
+    logger.debug("Could not parse tech stack entries — using fallback")
+    return FALLBACK
+
+
+def _check_stop(stop_event: threading.Event | None) -> None:
+    """Raise ``PipelineAbortedError`` if the user requested a stop."""
+    if stop_event is not None and stop_event.is_set():
+        raise PipelineAbortedError("Pipeline aborted by user.")
+
+
 def run_phase_recon(
     registry: SkillRegistry,
     config: PipelineConfig,
     agent_runner: Callable[..., str] | None = None,
+    stop_event: threading.Event | None = None,
 ) -> PhaseResult:
     """Phase 0: Reconnaissance.
 
@@ -177,6 +271,7 @@ def run_phase_recon(
     phase = PhaseResult(phase_name="recon", success=False)
 
     ensure_dir(config.output_dir)
+    _check_stop(stop_event)
 
     # Build prompt variables
     prompt_vars = {
@@ -211,7 +306,8 @@ def run_phase_recon(
     recon_path = config.output_dir / "recon_report.md"
     if recon_path.exists():
         passed, errors = validate_phase_output(
-            registry, recon_path, "recon_report", config.max_retries
+            registry, recon_path, "recon_report", config.max_retries,
+            stop_event=stop_event,
         )
         phase.validation_passed = passed
         if not passed:
@@ -226,19 +322,72 @@ def run_phase_recon(
     return phase
 
 
+def _run_single_analysis(
+    analysis_type: str,
+    template: str,
+    deliverable_name: str,
+    schema: str,
+    registry: SkillRegistry,
+    config: PipelineConfig,
+    prompt_vars_base: dict[str, str],
+    agent_runner: Callable[..., str] | None,
+    stop_event: threading.Event | None,
+) -> tuple[str, str | None, list[str]]:
+    """Run a single analysis sub-phase (injection or XSS).
+
+    Returns ``(deliverable_name | "", error_msg | None, validation_errors)``.
+    Designed to run inside a ``ThreadPoolExecutor``.
+    """
+    _check_stop(stop_event)
+    prompt_vars = {**prompt_vars_base}
+    prompt_text = load_prompt(PROMPTS_DIR / template, prompt_vars)
+
+    delivered = ""
+    validation_errors: list[str] = []
+
+    if agent_runner:
+        try:
+            output = agent_runner(prompt_text, f"analysis-{analysis_type}")
+            save_deliverable(deliverable_name, output, config.output_dir)
+            delivered = deliverable_name
+        except Exception as e:
+            return "", f"Analysis-{analysis_type} agent failed: {e}", []
+
+    # Validate
+    path = config.output_dir / deliverable_name
+    if path.exists():
+        passed, errors = validate_phase_output(
+            registry, path, schema, config.max_retries,
+            stop_event=stop_event,
+        )
+        if not passed:
+            validation_errors.extend(errors)
+        if not delivered:
+            delivered = deliverable_name
+
+    return delivered, None, validation_errors
+
+
 def run_phase_analysis(
     registry: SkillRegistry,
     config: PipelineConfig,
     agent_runner: Callable[..., str] | None = None,
+    stop_event: threading.Event | None = None,
 ) -> PhaseResult:
     """Phase 1: Analysis (injection + XSS).
 
     - Reads recon_report.md
     - Runs vulnerability lookups to enrich with CVE data
     - Produces hypotheses_injection.md and hypotheses_xss.md
+
+    Injection and XSS analyses run **in parallel** via ThreadPoolExecutor
+    (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
+    file so there is no file contention (Race condition #5).
     """
     start = time.time()
     phase = PhaseResult(phase_name="analysis", success=False)
+
+    _check_stop(stop_event)
 
     recon_data = read_deliverable("recon_report.md", config.output_dir)
     if not recon_data:
@@ -249,13 +398,7 @@ def run_phase_analysis(
     # Enrich with vulnerability lookups
     known_vulns = ""
     try:
-        # Try common Juice Shop stack components
-        tech_stack = [
-            {"product": "express", "version": "4.17.1"},
-            {"product": "angular", "version": "1.6.0"},
-            {"product": "jsonwebtoken", "version": "8.5.1"},
-            {"product": "sequelize", "version": "5.22.5"},
-        ]
+        tech_stack = _extract_tech_stack_from_recon(recon_data)
         batch_result = batch_lookup_cve(registry, tech_stack)
         if batch_result.success and isinstance(batch_result.output, list):
             known_vulns = format_known_vulns_for_prompt(batch_result.output)
@@ -269,88 +412,145 @@ def run_phase_analysis(
         "TARGET_URL": config.target_url,
     }
 
-    # Run injection analysis
-    for analysis_type, template, deliverable_name, schema in [
+    # Run injection + XSS analysis in parallel
+    sub_phases = [
         ("injection", "analysis-injection.md", "hypotheses_injection.md", "hypotheses"),
         ("xss", "analysis-xss.md", "hypotheses_xss.md", "hypotheses"),
-    ]:
-        prompt_vars = {**prompt_vars_base}
-        prompt_text = load_prompt(PROMPTS_DIR / template, prompt_vars)
+    ]
 
-        if agent_runner:
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis") as pool:
+        futures = {
+            pool.submit(
+                _run_single_analysis,
+                a_type, tmpl, deliv, sch,
+                registry, config, prompt_vars_base, agent_runner, stop_event,
+            ): a_type
+            for a_type, tmpl, deliv, sch in sub_phases
+        }
+
+        for future in as_completed(futures):
+            a_type = futures[future]
             try:
-                output = agent_runner(prompt_text, f"analysis-{analysis_type}")
-                save_deliverable(deliverable_name, output, config.output_dir)
-                phase.deliverables.append(deliverable_name)
-            except Exception as e:
-                phase.errors.append(f"Analysis-{analysis_type} agent failed: {e}")
+                delivered, error_msg, val_errors = future.result()
+            except Exception as exc:
+                phase.errors.append(f"Analysis-{a_type} crashed: {exc}")
                 continue
 
-        # Validate
-        path = config.output_dir / deliverable_name
-        if path.exists():
-            passed, errors = validate_phase_output(
-                registry, path, schema, config.max_retries
-            )
-            phase.validation_passed = phase.validation_passed or passed
-            if not passed:
-                phase.errors.extend(errors)
-            if deliverable_name not in phase.deliverables:
-                phase.deliverables.append(deliverable_name)
+            if error_msg:
+                phase.errors.append(error_msg)
+            if val_errors:
+                phase.errors.extend(val_errors)
+            if delivered and delivered not in phase.deliverables:
+                phase.deliverables.append(delivered)
+                phase.validation_passed = phase.validation_passed or (not val_errors)
 
     phase.success = len(phase.deliverables) > 0
     phase.duration_seconds = time.time() - start
     return phase
 
 
+def _run_single_exploit(
+    exploit_type: str,
+    template: str,
+    hyp_file: str,
+    findings_file: str,
+    registry: SkillRegistry,
+    config: PipelineConfig,
+    agent_runner: Callable[..., str] | None,
+    stop_event: threading.Event | None,
+) -> tuple[str, str | None, list[str]]:
+    """Run a single exploit sub-phase (injection or XSS).
+
+    Returns ``(deliverable_name | "", error_msg | None, validation_errors)``.
+    Designed to run inside a ``ThreadPoolExecutor``.
+    """
+    _check_stop(stop_event)
+
+    hypotheses = read_deliverable(hyp_file, config.output_dir)
+    if not hypotheses:
+        return "", f"{hyp_file} not available — skipping {exploit_type} exploit", []
+
+    prompt_vars = {
+        "HYPOTHESES": hypotheses,
+        "TARGET_URL": config.target_url,
+    }
+    prompt_text = load_prompt(PROMPTS_DIR / template, prompt_vars)
+
+    delivered = ""
+    validation_errors: list[str] = []
+
+    if agent_runner:
+        try:
+            output = agent_runner(prompt_text, f"exploit-{exploit_type}")
+            save_deliverable(findings_file, output, config.output_dir)
+            delivered = findings_file
+        except Exception as e:
+            return "", f"Exploit-{exploit_type} agent failed: {e}", []
+
+    # Validate
+    path = config.output_dir / findings_file
+    if path.exists():
+        passed, errors = validate_phase_output(
+            registry, path, "findings", config.max_retries,
+            stop_event=stop_event,
+        )
+        if not passed:
+            validation_errors.extend(errors)
+        if not delivered:
+            delivered = findings_file
+
+    return delivered, None, validation_errors
+
+
 def run_phase_exploit(
     registry: SkillRegistry,
     config: PipelineConfig,
     agent_runner: Callable[..., str] | None = None,
+    stop_event: threading.Event | None = None,
 ) -> PhaseResult:
     """Phase 2: Exploitation.
 
     - Reads hypothesis files
     - Produces findings_injection.md and findings_xss.md
+
+    Injection and XSS exploits run **in parallel** via ThreadPoolExecutor
+    (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
+    file so there is no file contention (Race condition #5).
     """
     start = time.time()
     phase = PhaseResult(phase_name="exploit", success=False)
+    _check_stop(stop_event)
 
-    for exploit_type, template, hyp_file, findings_file in [
+    sub_phases = [
         ("injection", "exploit-injection.md", "hypotheses_injection.md", "findings_injection.md"),
         ("xss", "exploit-xss.md", "hypotheses_xss.md", "findings_xss.md"),
-    ]:
-        hypotheses = read_deliverable(hyp_file, config.output_dir)
-        if not hypotheses:
-            phase.errors.append(f"{hyp_file} not available — skipping {exploit_type} exploit")
-            continue
+    ]
 
-        prompt_vars = {
-            "HYPOTHESES": hypotheses,
-            "TARGET_URL": config.target_url,
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="exploit") as pool:
+        futures = {
+            pool.submit(
+                _run_single_exploit,
+                e_type, tmpl, hyp, find,
+                registry, config, agent_runner, stop_event,
+            ): e_type
+            for e_type, tmpl, hyp, find in sub_phases
         }
-        prompt_text = load_prompt(PROMPTS_DIR / template, prompt_vars)
 
-        if agent_runner:
+        for future in as_completed(futures):
+            e_type = futures[future]
             try:
-                output = agent_runner(prompt_text, f"exploit-{exploit_type}")
-                save_deliverable(findings_file, output, config.output_dir)
-                phase.deliverables.append(findings_file)
-            except Exception as e:
-                phase.errors.append(f"Exploit-{exploit_type} agent failed: {e}")
+                delivered, error_msg, val_errors = future.result()
+            except Exception as exc:
+                phase.errors.append(f"Exploit-{e_type} crashed: {exc}")
                 continue
 
-        # Validate
-        path = config.output_dir / findings_file
-        if path.exists():
-            passed, errors = validate_phase_output(
-                registry, path, "findings", config.max_retries
-            )
-            phase.validation_passed = phase.validation_passed or passed
-            if not passed:
-                phase.errors.extend(errors)
-            if findings_file not in phase.deliverables:
-                phase.deliverables.append(findings_file)
+            if error_msg:
+                phase.errors.append(error_msg)
+            if val_errors:
+                phase.errors.extend(val_errors)
+            if delivered and delivered not in phase.deliverables:
+                phase.deliverables.append(delivered)
+                phase.validation_passed = phase.validation_passed or (not val_errors)
 
     phase.success = len(phase.deliverables) > 0
     phase.duration_seconds = time.time() - start
@@ -361,6 +561,7 @@ def run_phase_report(
     registry: SkillRegistry,
     config: PipelineConfig,
     agent_runner: Callable[..., str] | None = None,
+    stop_event: threading.Event | None = None,
 ) -> PhaseResult:
     """Phase 3: Report generation.
 
@@ -369,6 +570,7 @@ def run_phase_report(
     """
     start = time.time()
     phase = PhaseResult(phase_name="report", success=False)
+    _check_stop(stop_event)
 
     # Gather all findings
     findings_parts = []
@@ -398,7 +600,8 @@ def run_phase_report(
     path = config.output_dir / "pentest_report.md"
     if path.exists():
         passed, errors = validate_phase_output(
-            registry, path, "pentest_report", config.max_retries
+            registry, path, "pentest_report", config.max_retries,
+            stop_event=stop_event,
         )
         phase.validation_passed = passed
         if not passed:
@@ -412,6 +615,63 @@ def run_phase_report(
 
 
 # ---------------------------------------------------------------------------
+# Replay mode helpers
+# ---------------------------------------------------------------------------
+
+REPLAY_DIR = DELIVERABLES_DIR / "replay"
+
+# The deliverable files produced by a full pipeline run
+_REPLAY_FILES = [
+    "recon_report.md",
+    "hypotheses_injection.md",
+    "hypotheses_xss.md",
+    "findings_injection.md",
+    "findings_xss.md",
+    "pentest_report.md",
+]
+
+
+def save_replay_snapshot(output_dir: Path = DELIVERABLES_DIR) -> list[str]:
+    """Copy current deliverables into ``deliverables/replay/`` as a backup.
+
+    Returns the list of files successfully copied.
+    """
+    ensure_dir(REPLAY_DIR)
+    copied: list[str] = []
+    for name in _REPLAY_FILES:
+        src = output_dir / name
+        if src.exists():
+            dst = REPLAY_DIR / name
+            shutil.copy2(str(src), str(dst))
+            copied.append(name)
+            logger.info("Replay snapshot: %s → %s", src, dst)
+    return copied
+
+
+def load_replay_deliverables(output_dir: Path = DELIVERABLES_DIR) -> list[str]:
+    """Copy pre-recorded deliverables from ``deliverables/replay/`` into *output_dir*.
+
+    Returns the list of files successfully restored.  Files that do not exist
+    in the replay directory are silently skipped.
+    """
+    ensure_dir(output_dir)
+    restored: list[str] = []
+    for name in _REPLAY_FILES:
+        src = REPLAY_DIR / name
+        if src.exists():
+            dst = output_dir / name
+            shutil.copy2(str(src), str(dst))
+            restored.append(name)
+            logger.info("Replay restore: %s → %s", src, dst)
+    if not restored:
+        logger.warning(
+            "No replay deliverables found in %s — replay directory is empty",
+            REPLAY_DIR,
+        )
+    return restored
+
+
+# ---------------------------------------------------------------------------
 # Full pipeline orchestrator
 # ---------------------------------------------------------------------------
 
@@ -419,6 +679,8 @@ def run_pipeline(
     config: PipelineConfig | None = None,
     agent_runner: Callable[..., str] | None = None,
     skills_dir: Path | None = None,
+    stop_event: threading.Event | None = None,
+    resume_from: str | None = None,
 ) -> PipelineResult:
     """Execute the full SPAIDER pentesting pipeline.
 
@@ -434,6 +696,10 @@ def run_pipeline(
                       that runs an LLM agent and returns the deliverable content.
                       If None, phases will only validate existing deliverables.
         skills_dir: Override the skills directory path.
+        stop_event: If set, abort the pipeline cooperatively.
+        resume_from: Phase name to resume from (``recon``, ``analysis``,
+                     ``exploit``, or ``report``).  Phases before this are
+                     skipped — the pipeline uses existing deliverables on disk.
 
     Returns:
         PipelineResult with all phase results and generated deliverables.
@@ -446,6 +712,7 @@ def run_pipeline(
 
     # Initialize skill registry
     registry = SkillRegistry(skills_dir)
+    registry.freeze()  # Prevent reload during pipeline run (Race condition #8)
     logger.info(
         "Pipeline starting — skills loaded: %s", registry.skill_names
     )
@@ -457,20 +724,36 @@ def run_pipeline(
     ensure_dir(config.output_dir)
 
     # Phase definitions
-    phases = [
+    phases: list[tuple[str, Callable]] = [
         ("Phase 0: Recon", run_phase_recon),
         ("Phase 1: Analysis", run_phase_analysis),
         ("Phase 2: Exploit", run_phase_exploit),
         ("Phase 3: Report", run_phase_report),
     ]
 
+    # Resume support — skip phases before the requested starting point
+    _PHASE_KEYS = ["recon", "analysis", "exploit", "report"]
+    if resume_from and resume_from in _PHASE_KEYS:
+        skip_count = _PHASE_KEYS.index(resume_from)
+        if skip_count > 0:
+            logger.info(
+                "Resuming from '%s' — skipping %d earlier phase(s)",
+                resume_from,
+                skip_count,
+            )
+            phases = phases[skip_count:]
+
     for phase_label, phase_fn in phases:
+        if stop_event and stop_event.is_set():
+            logger.info("Pipeline aborted by user before %s", phase_label)
+            break
+
         logger.info("=" * 60)
         logger.info("Starting %s", phase_label)
         logger.info("=" * 60)
 
         try:
-            phase_result = phase_fn(registry, config, agent_runner)
+            phase_result = phase_fn(registry, config, agent_runner, stop_event)
         except Exception as e:
             logger.error("%s FAILED with exception: %s", phase_label, e)
             phase_result = PhaseResult(
@@ -494,6 +777,7 @@ def run_pipeline(
                 logger.warning("  Error: %s", err)
 
     result.total_duration_seconds = time.time() - pipeline_start
+    registry.unfreeze()  # Re-allow reload after pipeline completes
     logger.info("=" * 60)
     logger.info(
         "Pipeline complete in %.1fs — %d deliverables generated",
