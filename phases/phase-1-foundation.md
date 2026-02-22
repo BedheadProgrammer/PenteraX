@@ -14,7 +14,7 @@
 - [ ] Juice Shop source code cloned into `repos/juice-shop/`
 - [ ] External tools available: `nmap`, `whatweb`, `sqlmap`, `curl`
 - [ ] `.env` file created with valid `ANTHROPIC_API_KEY`
-- [ ] XSS vulnerability research documented (E3 has attack surface knowledge)
+- [x] XSS vulnerability research documented (E3 has attack surface knowledge)
 
 ---
 
@@ -59,14 +59,14 @@
 
 > **Files created/modified:** None in repo (research notes only)
 
-- [ ] Research Juice Shop's known XSS vulnerabilities:
-  - [ ] DOM XSS in search (`/#/search?q=`)
-  - [ ] Reflected XSS in order tracking
-  - [ ] Stored XSS via feedback/review forms
-- [ ] Identify specific payloads for each XSS type
-- [ ] Research Juice Shop's endpoint structure for report template planning
-- [ ] Document Playwright interaction patterns needed for XSS proof capture (dialog events, DOM changes)
-- [ ] Identify Juice Shop default credentials: `admin@juice-sh.op` / `admin123`
+- [x] Research Juice Shop's known XSS vulnerabilities:
+  - [x] DOM XSS in search (`/#/search?q=`)
+  - [x] Reflected XSS in order tracking
+  - [x] Stored XSS via feedback/review forms
+- [x] Identify specific payloads for each XSS type
+- [x] Research Juice Shop's endpoint structure for report template planning
+- [x] Document Playwright interaction patterns needed for XSS proof capture (dialog events, DOM changes)
+- [x] Identify Juice Shop default credentials: `admin@juice-sh.op` / `admin123`
 
 ---
 
