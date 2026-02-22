@@ -17,7 +17,9 @@ build/
 .env.*
 
 # Pipeline outputs
-deliverables/
+deliverables/*.md
+deliverables/*.json
+deliverables/pipeline.log
 
 # Cloned target repos
 repos/

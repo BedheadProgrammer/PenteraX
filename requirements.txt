@@ -1,11 +1,9 @@
-# SPAIDER Agent - Python Dependencies
+# PenteraX — Python Dependencies
 # Core
+anthropic>=0.40.0
+customtkinter>=5.2.0
 requests>=2.31.0
 pyyaml>=6.0
-
-# CVE lookup (stdlib urllib used, but requests as fallback)
-# No additional deps needed - lookup_cve.py uses stdlib urllib
-
-# Future extensions
-# anthropic>=0.40.0       # Uncomment when integrating Claude Agent SDK
-# playwright>=1.40.0      # Uncomment for browser automation
+python-dotenv>=1.0.0
+Pillow>=10.0.0
+filelock>=3.12.0

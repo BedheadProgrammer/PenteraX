@@ -10,7 +10,7 @@
 
 - [ ] `npm install` succeeds without errors
 - [ ] `npx tsc --noEmit` succeeds (TypeScript compiles)
-- [ ] OWASP Juice Shop accessible at `http://localhost:3000`
+- [ ] OWASP Juice Shop accessible at `http://54.146.141.88:3000`
 - [ ] Juice Shop source code cloned into `repos/juice-shop/`
 - [ ] External tools available: `nmap`, `whatweb`, `sqlmap`, `curl`
 - [ ] `.env` file created with valid `ANTHROPIC_API_KEY`
@@ -43,11 +43,11 @@
 
 ### Stream B — Target Environment & Tools [E2: Injection]
 
-> **Files created/modified:** None in repo (Docker + system-level setup)
+> **Files created/modified:** None in repo (AWS instance & system-level setup)
 
-- [ ] Pull Juice Shop Docker image: `docker pull bkimminich/juice-shop`
-- [ ] Start Juice Shop container: `docker run -d -p 3000:3000 bkimminich/juice-shop`
-- [ ] Verify Juice Shop accessible at `http://localhost:3000`
+- [ ] Verify AWS Juice Shop instance is running at `http://54.146.141.88:3000`
+- [ ] Ensure AWS Security Group allows inbound TCP on ports 22, 80, 443, 3000
+- [ ] Ensure AWS Security Group allows nmap scan traffic (don't block SYN probes)
 - [ ] Clone Juice Shop source code into `repos/juice-shop/`
 - [ ] Install `nmap` (verify with `nmap --version`)
 - [ ] Install `whatweb` (verify with `whatweb --version`)
@@ -73,6 +73,6 @@
 ## Notes
 
 - **E1 is not a blocker** in this phase — all streams are independent
-- E2 should prioritize Docker setup first (other engineers may need the running target to test against)
+- E2 should prioritize verifying AWS target accessibility first (other engineers may need the running target to test against)
 - E3's research output feeds directly into prompt writing in Phase 2
-- If Docker is unavailable, E2 can run Juice Shop natively via `npm start` in the cloned repo
+- If the AWS instance is unavailable, E2 can run Juice Shop locally via Docker as fallback: `docker run -d -p 3000:3000 bkimminich/juice-shop`

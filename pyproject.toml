@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "penterax"
+version = "0.1.0"
+description = "Agentic pentest pipeline targeting OWASP Juice Shop on AWS"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.40.0",
+    "customtkinter>=5.2.0",
+    "requests>=2.31.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "Pillow>=10.0.0",
+    "filelock>=3.12.0",
+]
+
+[project.scripts]
+penterax = "src.gui:main"
+penterax-cli = "src.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
