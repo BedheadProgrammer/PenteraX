@@ -100,26 +100,21 @@ def check_target_reachable(url: str, timeout: int = 10) -> PreflightCheck:
 
 
 def check_nmap_installed() -> PreflightCheck:
-    """Verify nmap is installed and on the PATH."""
+    """Verify nmap is installed and discoverable."""
     try:
-        proc = subprocess.run(
-            ["nmap", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        version_line = proc.stdout.strip().splitlines()[0] if proc.stdout else "unknown"
-        return PreflightCheck(
-            name="Nmap installed",
-            passed=True,
-            message=version_line,
-            critical=True,
-        )
-    except FileNotFoundError:
+        from .tool_discovery import find_tool
+        info = find_tool("nmap")
+        if info.available:
+            return PreflightCheck(
+                name="Nmap installed",
+                passed=True,
+                message=f"{info.version or 'found'} at {info.path}",
+                critical=True,
+            )
         return PreflightCheck(
             name="Nmap installed",
             passed=False,
-            message="nmap not found on PATH",
+            message=info.reason,
             critical=True,
         )
     except Exception as exc:  # noqa: BLE001
@@ -195,15 +190,16 @@ def check_disk_space(output_dir: Path, min_mb: int = 100) -> PreflightCheck:
 
 def check_optional_tools() -> PreflightCheck:
     """Probe for optional tools (whatweb, sqlmap, curl) and report availability."""
-    tools = ["whatweb", "sqlmap", "curl"]
-    found: list[str] = []
-    missing: list[str] = []
-
-    for tool in tools:
-        if shutil.which(tool):
-            found.append(tool)
-        else:
-            missing.append(tool)
+    try:
+        from .tool_discovery import check_all_tools
+        results = check_all_tools(["whatweb", "sqlmap", "curl"], skip_version=True)
+        found = [name for name, info in results.items() if info.available]
+        missing = [name for name, info in results.items() if not info.available]
+    except ImportError:
+        # Fallback if tool_discovery is not available
+        tools = ["whatweb", "sqlmap", "curl"]
+        found = [t for t in tools if shutil.which(t)]
+        missing = [t for t in tools if t not in found]
 
     msg_parts: list[str] = []
     if found:

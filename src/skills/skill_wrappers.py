@@ -282,3 +282,297 @@ def format_known_vulns_for_prompt(lookup_results: list[dict]) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Nmap runner wrappers
+# ---------------------------------------------------------------------------
+
+def run_nmap(
+    registry: SkillRegistry,
+    target: str,
+    profile: str = "web-focused",
+    ports: str | None = None,
+    xml_output: str | None = None,
+    timeout: int = 180,
+) -> SkillResult:
+    """Run nmap against a target host and return structured JSON.
+
+    Wraps ``skills/network-recon/scripts/run_nmap.py``.
+
+    Args:
+        registry: The loaded SkillRegistry.
+        target: Target host or IP to scan.
+        profile: Scan profile (quick, standard, stealth, web-focused).
+        ports: Optional port specification override.
+        xml_output: Optional path to save raw XML (not deleted).
+        timeout: Subprocess timeout in seconds.
+
+    Returns:
+        SkillResult with ``output`` set to the structured scan JSON.
+    """
+    args = [target, "--profile", profile, "--timeout", str(timeout)]
+    if ports:
+        args += ["--ports", ports]
+    if xml_output:
+        args += ["--xml-output", xml_output]
+
+    return registry.run("network-recon", "run_nmap.py", args=args, timeout=timeout + 30)
+
+
+# ---------------------------------------------------------------------------
+# WhatWeb / web fingerprinting wrappers
+# ---------------------------------------------------------------------------
+
+def run_whatweb(
+    registry: SkillRegistry,
+    target_url: str,
+    aggression: int = 3,
+    timeout: int = 60,
+) -> SkillResult:
+    """Run whatweb (or fallback fingerprinter) against a target URL.
+
+    Wraps ``skills/network-recon/scripts/run_whatweb.py``.
+
+    Args:
+        registry: The loaded SkillRegistry.
+        target_url: Target URL to fingerprint.
+        aggression: WhatWeb aggression level 1-4 (default: 3).
+        timeout: Subprocess timeout in seconds.
+
+    Returns:
+        SkillResult with ``output`` containing ``technologies`` list.
+    """
+    args = [target_url, "--aggression", str(aggression), "--timeout", str(timeout)]
+    return registry.run("network-recon", "run_whatweb.py", args=args, timeout=timeout + 15)
+
+
+def format_technologies_for_prompt(technologies: list[dict]) -> str:
+    """Format whatweb/fingerprint results into a markdown block for prompt injection.
+
+    Produces the ``{{TECHNOLOGIES}}`` template variable content.
+    """
+    if not technologies:
+        return "No web technologies identified."
+
+    lines = ["## Identified Web Technologies\n"]
+    lines.append("| Technology | Version | Source |")
+    lines.append("|------------|---------|--------|")
+    for tech in technologies:
+        name = tech.get("name", "unknown")
+        version = tech.get("version", "")
+        source = tech.get("source", "")
+        lines.append(f"| {name} | {version} | {source} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# SQLInjectionSkill wrappers
+# ---------------------------------------------------------------------------
+
+def run_sqlmap(
+    registry: SkillRegistry,
+    target_url: str,
+    param: str,
+    method: str | None = None,
+    data: str | None = None,
+    headers: str | None = None,
+    dbms: str = "sqlite",
+    level: int = 3,
+    risk: int = 2,
+    technique: str = "BEUST",
+    threads: int = 4,
+    tamper: str | None = None,
+    dump_tables: bool = False,
+    timeout: int = 120,
+) -> SkillResult:
+    """Run sqlmap against a target endpoint to test for SQL injection.
+
+    Wraps ``skills/sql-injection/scripts/run_sqlmap.py``.
+
+    Args:
+        registry: The loaded SkillRegistry.
+        target_url: Target URL with query parameters.
+        param: Parameter to test for injection.
+        method: HTTP method (GET/POST). Auto-detected if None.
+        data: POST body (JSON or form data).
+        headers: Extra headers (comma-separated key:value).
+        dbms: Target DBMS (default: sqlite for Juice Shop).
+        level: Test level 1-5.
+        risk: Risk level 1-3.
+        technique: Injection techniques (default: BEUST).
+        threads: Concurrent threads.
+        tamper: Tamper scripts (comma-separated).
+        dump_tables: If True, enumerate tables on confirmed injection.
+        timeout: Subprocess timeout in seconds.
+
+    Returns:
+        SkillResult with ``output`` containing injection test results.
+    """
+    args = [
+        target_url,
+        "--param", param,
+        "--dbms", dbms,
+        "--level", str(level),
+        "--risk", str(risk),
+        "--technique", technique,
+        "--threads", str(threads),
+        "--timeout", str(timeout),
+    ]
+    if method:
+        args += ["--method", method]
+    if data:
+        args += ["--data", data]
+    if headers:
+        args += ["--headers", headers]
+    if tamper:
+        args += ["--tamper", tamper]
+    if dump_tables:
+        args.append("--dump-tables")
+
+    return registry.run("sql-injection", "run_sqlmap.py", args=args, timeout=timeout + 30)
+
+
+def format_sqlmap_finding(sqlmap_result: dict, hypothesis_id: str = "") -> str:
+    """Format a sqlmap result into a markdown finding block.
+
+    Used to generate entries for ``findings_injection.md``.
+    """
+    injectable = sqlmap_result.get("injectable", False)
+    target = sqlmap_result.get("target_url", "unknown")
+    param = sqlmap_result.get("parameter", "unknown")
+    technique = sqlmap_result.get("technique", "unknown")
+    payloads = sqlmap_result.get("payloads", [])
+    tables = sqlmap_result.get("tables", [])
+
+    lines = []
+    if hypothesis_id:
+        lines.append(f"### Finding — Hypothesis {hypothesis_id}\n")
+    else:
+        lines.append(f"### SQL Injection Finding\n")
+
+    lines.append(f"**Endpoint:** `{target}`")
+    lines.append(f"**Parameter:** `{param}`")
+    lines.append(f"**Injectable:** {'Yes' if injectable else 'No'}")
+
+    if injectable:
+        lines.append(f"**Technique:** {technique}")
+        if payloads:
+            lines.append("**Payloads:**")
+            for payload in payloads[:5]:
+                lines.append(f"- `{payload}`")
+        if tables:
+            lines.append(f"**Tables discovered:** {', '.join(tables[:10])}")
+        lines.append(f"**Severity:** HIGH")
+    else:
+        lines.append("**Result:** No injection detected with current settings.")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# HTTP Request wrapper (curl-like)
+# ---------------------------------------------------------------------------
+
+def run_http_request(
+    url: str,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+    timeout: int = 30,
+    max_response_bytes: int = 10_000,
+) -> SkillResult:
+    """Send an HTTP request and return the response.
+
+    This is a pure-Python implementation (no external skill script needed)
+    that acts as the agent's ``curl`` equivalent.  It returns the status code,
+    response headers, and a truncated response body.
+
+    Args:
+        url: Full URL to request.
+        method: HTTP method (GET, POST, PUT, DELETE, etc.).
+        headers: Optional dict of HTTP headers.
+        body: Optional request body (string — typically JSON).
+        timeout: Request timeout in seconds.
+        max_response_bytes: Maximum bytes of response body to return.
+
+    Returns:
+        SkillResult with ``output`` containing status_code, headers, body, elapsed.
+    """
+    import time
+    import urllib.request
+    import urllib.error
+    import urllib.parse
+
+    start = time.monotonic()
+    req_headers = headers or {}
+
+    try:
+        data_bytes = body.encode("utf-8") if body else None
+        req = urllib.request.Request(
+            url,
+            data=data_bytes,
+            headers=req_headers,
+            method=method.upper(),
+        )
+
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status_code = resp.status
+            resp_headers = dict(resp.headers)
+            raw_body = resp.read(max_response_bytes)
+            try:
+                body_text = raw_body.decode("utf-8", errors="replace")
+            except Exception:
+                body_text = repr(raw_body[:max_response_bytes])
+
+        elapsed = time.monotonic() - start
+        return SkillResult(
+            success=True,
+            skill_name="http-request",
+            output={
+                "status_code": status_code,
+                "headers": resp_headers,
+                "body": body_text,
+                "body_length": len(body_text),
+                "elapsed_seconds": round(elapsed, 3),
+                "url": url,
+                "method": method.upper(),
+            },
+        )
+
+    except urllib.error.HTTPError as e:
+        elapsed = time.monotonic() - start
+        try:
+            error_body = e.read(max_response_bytes).decode("utf-8", errors="replace")
+        except Exception:
+            error_body = ""
+        return SkillResult(
+            success=True,  # HTTP errors are still valid responses
+            skill_name="http-request",
+            output={
+                "status_code": e.code,
+                "headers": dict(e.headers) if e.headers else {},
+                "body": error_body,
+                "body_length": len(error_body),
+                "elapsed_seconds": round(elapsed, 3),
+                "url": url,
+                "method": method.upper(),
+                "error": str(e.reason),
+            },
+        )
+
+    except Exception as e:
+        elapsed = time.monotonic() - start
+        return SkillResult(
+            success=False,
+            skill_name="http-request",
+            output={
+                "error": str(e),
+                "elapsed_seconds": round(elapsed, 3),
+                "url": url,
+                "method": method.upper(),
+            },
+            errors=[str(e)],
+        )

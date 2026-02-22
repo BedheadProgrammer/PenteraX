@@ -8,7 +8,15 @@ Use the provided {{TARGET_URL}} for ALL requests and scans.
 
 Perform comprehensive reconnaissance against the OWASP Juice Shop instance at **{{TARGET_URL}}**. Produce a structured `recon_report.md` deliverable that downstream analysis agents will consume.
 
-You have access to skill tools — use them to run nmap scans and look up CVEs. Do NOT skip tool usage; the structured data they return is critical for accurate analysis.
+You have access to skill tools — use them to look up CVEs. You also have **pre-collected ground-truth data** below (source code analysis, network scan, and HTTP endpoint probes). Use this data as the authoritative basis for your analysis — do NOT hallucinate or fabricate recon data. Reason over the provided data to produce the structured report.
+
+## CRITICAL OUTPUT RULES
+
+1. **Your ENTIRE text response must be the complete recon_report.md content in valid markdown.**
+2. **Do NOT write a summary, introduction, or conversational text.** Start directly with `## Technology Stack`.
+3. **Do NOT use the `save_deliverable` tool.** The pipeline automatically saves your text response as the deliverable.
+4. **ALL sections listed under "Required Output Format" below are MANDATORY.** If you omit any section, validation will fail.
+5. **Include real data from the pre-collected analysis** — cite specific source files (e.g., `routes/search.ts:42`), specific version numbers, and specific endpoint paths.
 
 ## Target Information
 
@@ -17,117 +25,67 @@ You have access to skill tools — use them to run nmap scans and look up CVEs. 
 - **Default credentials:** `admin@juice-sh.op` / `admin123`
 - **Known API patterns:** `/api/*`, `/rest/*`, `/b2b/v2/*`
 
-## Step-by-Step Instructions
+---
 
-### Step 1 — Source Code Analysis (CRITICAL — do this FIRST)
+## Pre-collected Ground-Truth Data
 
-Read the application source code at `{{REPO_PATH}}`. This gives you ground-truth knowledge that network scanning cannot provide. Perform ALL FIVE tasks below — do NOT skip any.
+The following data was collected by the pipeline before your invocation. It is **real, deterministic, and authoritative**. Use it as your primary source rather than attempting to run commands or make HTTP requests yourself.
 
-#### Task 1.1 — Route Mapping
-Find every HTTP endpoint, URL pattern, and handler function:
-```bash
-# Express route registrations
-grep -rn "app\.\(get\|post\|put\|delete\|patch\|use\)" {{REPO_PATH}}/routes/ {{REPO_PATH}}/server.ts
-grep -rn "router\.\(get\|post\|put\|delete\|patch\)" {{REPO_PATH}}/routes/
-# Angular client-side routes
-grep -rn "path:" {{REPO_PATH}}/frontend/src/app/app-routing.module.ts 2>/dev/null || true
-grep -rn "RouterModule\|Routes" {{REPO_PATH}}/frontend/src/ 2>/dev/null | head -30
-```
-Record: route path, HTTP method, handler file, handler function name.
+### Source Code Analysis
 
-#### Task 1.2 — Sink Identification
-Find dangerous function calls that could lead to vulnerabilities:
-```bash
-# SQL injection sinks
-grep -rn "sequelize\.query\|\.query(" {{REPO_PATH}}/routes/ {{REPO_PATH}}/models/
-grep -rn "raw:\s*true\|replacements" {{REPO_PATH}}/routes/
-# XSS sinks
-grep -rn "innerHTML\|outerHTML\|document\.write\|eval(" {{REPO_PATH}}/frontend/src/
-grep -rn "dangerouslySetInnerHTML\|v-html\|\\[innerHTML\\]" {{REPO_PATH}}/frontend/src/
-# Command injection sinks
-grep -rn "child_process\|exec(\|spawn(\|execFile(" {{REPO_PATH}}/routes/ {{REPO_PATH}}/lib/
-# Path traversal sinks
-grep -rn "path\.join\|path\.resolve\|readFile\|createReadStream" {{REPO_PATH}}/routes/
-```
-For each sink: record the file, line number, function name, and which user input reaches it.
+{{SOURCE_ANALYSIS}}
 
-#### Task 1.3 — Auth Mechanism Analysis
-```bash
-# JWT and auth middleware
-grep -rn "jwt\|jsonwebtoken\|verify\|sign(" {{REPO_PATH}}/routes/ {{REPO_PATH}}/lib/
-grep -rn "middleware\|authorize\|authenticate\|isAuthed" {{REPO_PATH}}/
-cat {{REPO_PATH}}/routes/verify.ts 2>/dev/null || true
-```
-Document: token format, signing algorithm, which routes enforce auth, any auth bypass patterns.
+### Network Scan Results
 
-#### Task 1.4 — Input Entry Point Mapping
-```bash
-# Request parameter access
-grep -rn "req\.query\|req\.params\|req\.body\|req\.headers\|req\.cookies" {{REPO_PATH}}/routes/
-# Form/body parsing configuration
-grep -rn "bodyParser\|express\.json\|express\.urlencoded\|multer\|busboy" {{REPO_PATH}}/server.ts {{REPO_PATH}}/routes/
-```
-For each entry point: record parameter name, source (query/body/header/cookie), and which handler consumes it.
+{{NMAP_RESULTS}}
 
-#### Task 1.5 — Technology Stack Identification
-```bash
-cat {{REPO_PATH}}/package.json | head -60
-# Look for specific framework versions
-grep -n "express\|angular\|sequelize\|sqlite\|jsonwebtoken\|sanitize-html" {{REPO_PATH}}/package.json
-```
-Record: framework, ORM, template engine, auth library — with version numbers.
+### HTTP Endpoint Probe Results
 
-### Step 2 — Network Scan
+{{HTTP_PROBE_RESULTS}}
 
-Run nmap against the **IP/hostname extracted from {{TARGET_URL}}** (NOT localhost):
+---
 
-```bash
-nmap -sV -p 80,443,8080,8443,3000,5000,8000,9000 \
-  --script http-enum,http-title,http-headers,http-methods,ssl-cert \
-  -Pn --host-timeout 120s \
-  -oX /tmp/nmap_scan.xml <TARGET_HOST>
-```
+## Your Tasks
 
-**IMPORTANT for AWS targets:**
-- Always use `-Pn` (skip host discovery — AWS security groups may block ICMP)
-- Always use `--host-timeout 120s` (AWS latency can be higher than local)
-- Extract the hostname/IP from {{TARGET_URL}} — do NOT scan 127.0.0.1 or localhost
+Given the pre-collected data above, perform the following reasoning tasks:
 
-After the scan completes, use the `network_recon_parse_nmap` tool to parse the XML into structured JSON.
+### Step 1 — Review Source Code Analysis
 
-### Step 3 — Live HTTP Endpoint Discovery
+Examine the pre-collected source analysis above. For each category of findings:
+- Identify the most security-relevant matches
+- Map routes to their handler functions and parameters
+- Note which sinks receive unsanitized user input
+- Record the technology stack with version numbers
 
-Verify and extend the endpoints found in source code by sending live HTTP requests to {{TARGET_URL}}:
+### Step 2 — Review Network Scan
 
-1. Fetch the main page and extract Angular routes from the JavaScript bundle
-2. Probe known Juice Shop API endpoints:
-   - `GET {{TARGET_URL}}/api/Products` — product listing
-   - `GET {{TARGET_URL}}/rest/products/search?q=test` — search endpoint
-   - `POST {{TARGET_URL}}/rest/user/login` — authentication
-   - `GET {{TARGET_URL}}/api/Feedbacks` — feedback/review system
-   - `GET {{TARGET_URL}}/api/Complaints` — complaint submission
-   - `GET {{TARGET_URL}}/api/Recycles` — recycle endpoint
-   - `GET {{TARGET_URL}}/rest/basket/1` — shopping basket
-   - `GET {{TARGET_URL}}/api/Challenges` — challenge listing (meta)
-   - `GET {{TARGET_URL}}/api/SecurityQuestions` — security questions
-   - `POST {{TARGET_URL}}/api/Users` — user registration
-   - `GET {{TARGET_URL}}/b2b/v2/orders` — B2B API
-3. Record HTTP method, response status, content-type, and notable response patterns
+Examine the nmap results above:
+- Confirm which ports/services are running
+- Extract product/version information for CVE lookups
+- Note any unexpected open ports or services
+
+### Step 3 — Review HTTP Endpoint Probes
+
+Examine the HTTP probe results above:
+- Confirm which endpoints are active and their response patterns
+- Identify endpoints that return JSON data structures
+- Note endpoints that return errors (potential attack vectors)
+- Cross-reference with source code routes to identify discrepancies
 
 ### Step 4 — Vulnerability Lookup
 
-Use the `vulnerability_lookup_cve` tool to query CVEs for each identified technology and version:
+Use the `vulnerability_lookup_cve` tool to query CVEs for each identified technology and version from the pre-collected data:
 
-- Express (version from nmap/headers)
-- Angular (version from JavaScript source)
-- jsonwebtoken (check JWT tokens for library version clues)
-- sequelize (inferred from SQL error messages or known Juice Shop stack)
-- sanitize-html (if detected)
+- Express (version from package.json / nmap)
+- Angular (version from package.json)
+- jsonwebtoken (version from package.json)
+- sequelize (version from package.json)
+- sanitize-html (if detected in dependencies)
 
 ### Step 5 — Consolidate Sinks
 
-Merge the sinks found in source code (Step 1.2) with live endpoint behaviour (Step 3). For each sink, confirm:
-- The code path is reachable from an HTTP endpoint
+Merge the sinks found in source code analysis with live endpoint behaviour from HTTP probes. For each sink, confirm:
+- The code path is reachable from an HTTP endpoint (cross-reference routes with probes)
 - The user-controlled input actually flows into the dangerous function
 - No sanitization or parameterization is applied between entry point and sink
 
@@ -148,65 +106,98 @@ Categorize consolidated sinks:
 
 ## Required Output Format
 
-Produce a single markdown document with ALL of the following sections. Each section is REQUIRED — do not omit any.
+**YOUR ENTIRE RESPONSE MUST BE the recon_report.md content.** Do NOT include any conversational text, preamble, or explanation. Start directly with `## Technology Stack`.
 
-```markdown
-## Technology Stack
+The document MUST contain ALL of the following sections in this exact order. Missing sections cause validation failure.
+
+### Section 1 — `## Technology Stack` (REQUIRED)
+
+A markdown table with these exact columns:
 
 | Component | Product | Version | Source |
 |-----------|---------|---------|--------|
 | Backend   | Express | X.Y.Z   | package.json + nmap |
-| Frontend  | Angular | X.Y.Z   | package.json + JS bundle |
+| Frontend  | Angular | X.Y.Z   | package.json |
 | Database  | SQLite  | N/A     | package.json (sequelize) |
 | Auth      | jsonwebtoken | X.Y.Z | package.json |
-| ...       | ...     | ...     | ...                  |
+| Sanitizer | sanitize-html | X.Y.Z | package.json |
 
-## Endpoints
+Fill in REAL version numbers from the pre-collected source data above. Include at least 6 components.
+
+### Section 2 — `## Endpoints` (REQUIRED)
+
+A markdown table listing ALL discovered endpoints from the source code and HTTP probes:
 
 | Route | Method | Parameters | Auth Required | Source File | Handler |
 |-------|--------|------------|---------------|-------------|---------|
-| /rest/products/search | GET | q | No | routes/search.ts | searchProducts() |
-| ...   | ...    | ...        | ...           | ...         | ...     |
+| /rest/products/search | GET | q | No | routes/search.ts | ... |
+| /rest/user/login | POST | email, password | No | routes/login.ts | ... |
 
-## Identified Sinks
+Include at least 15 endpoints. Derive these from:
+- Route registrations found in pre-collected source analysis (Task 1.1)
+- HTTP probe results showing active endpoints
+- Cross-reference both sources
 
-### SQL Injection Sinks
-- **Endpoint:** /rest/products/search — `q` parameter concatenated into raw Sequelize query
+### Section 3 — `## Identified Sinks` (REQUIRED)
+
+Group by vulnerability class. Each sink MUST cite the specific source file and line number.
+
+#### SQL Injection Sinks
+- **Endpoint:** /rest/products/search — `q` parameter
   - **Source:** routes/search.ts:NN — `models.sequelize.query("SELECT ... '" + criteria + "'")`
-  - **Input flow:** req.query.q → criteria variable → SQL string concatenation
-- ...
+  - **Input flow:** req.query.q → criteria → SQL string concatenation
+  - **Sanitization:** None
 
-### XSS Sinks
-- **Endpoint:** /api/Feedbacks — comment field rendered in admin panel without escaping
+#### XSS Sinks
+- **Endpoint:** /api/Feedbacks — comment field
   - **Source:** routes/feedback.ts → frontend admin component
   - **Input flow:** req.body.comment → database → admin panel DOM
-- ...
+  - **Sanitization:** sanitize-html (bypass known — see CVEs)
 
-### Other Sinks
-- ...
+#### Authentication Sinks
+(JWT vulnerabilities, login bypass)
 
-## Network Scan
+#### Path Traversal Sinks
+(File endpoints with path.join)
 
-[Paste the structured nmap output here — JSON or markdown table from parse_nmap tool]
+#### Command Injection Sinks
+(Any exec/spawn calls)
 
-## Authentication Architecture
+Include at least 5 sinks total across all categories.
 
-- JWT-based authentication
-- Token structure: [describe header/payload if observable]
-- Session handling: [describe]
+### Section 4 — `## Network Scan` (REQUIRED)
 
-## Traffic Baseline
+Structured nmap results as a markdown table:
 
-- Normal search response: [describe typical response structure]
-- Error response pattern: [describe]
-- Rate limiting: [describe if observed]
+| Port | Protocol | State | Service | Product | Version |
+|------|----------|-------|---------|---------|----------|
+| 3000 | tcp | open | ... | ... | ... |
 
-## Prioritized Attack Surface
+Pull this data directly from the pre-collected nmap results above.
 
-1. **HIGH:** [Most exploitable endpoint + why]
-2. **HIGH:** [Second most exploitable + why]
-3. **MEDIUM:** [...]
-4. ...
-```
+### Section 5 — `## Authentication Architecture` (REQUIRED)
 
-Save the final output as `recon_report.md` using the `save_deliverable` tool.
+- JWT library and version
+- Token generation pattern (from source code analysis)
+- Known vulnerabilities in the JWT implementation
+- Session handling details
+
+### Section 6 — `## Traffic Baseline` (REQUIRED)
+
+- Normal search response structure (from HTTP probes)
+- Error response patterns
+- Rate limiting (observed or absent)
+
+### Section 7 — `## Prioritized Attack Surface` (REQUIRED)
+
+Ranked list with severity and justification:
+1. **CRITICAL:** [endpoint + vulnerability type + why exploitable]
+2. **HIGH:** [endpoint + vulnerability type + why]
+3. **HIGH:** [endpoint + vulnerability type + why]
+4. **MEDIUM:** [...]
+
+Include at least 5 prioritized items.
+
+---
+
+**REMEMBER: Your response IS the deliverable. Output ONLY the markdown report. No preamble. No summary. Start with `## Technology Stack`.**

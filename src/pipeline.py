@@ -24,10 +24,12 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
 from .exceptions import PipelineAbortedError
+from .precollect import run_precollection
 from .skills.skill_loader import SkillRegistry, SkillResult, PROJECT_ROOT
 from .skills.skill_wrappers import (
     parse_nmap,
@@ -263,9 +265,14 @@ def run_phase_recon(
 ) -> PhaseResult:
     """Phase 0: Reconnaissance.
 
-    - Runs nmap scan → parse_nmap.py for structured JSON
+    - **Pre-collects** source analysis, nmap scan, HTTP probes (hybrid design)
     - Runs vulnerability lookup on discovered tech stack
     - Produces ``recon_report.md``
+
+    The hybrid pre-collection approach (DESIGN_REVIEW §4) injects real,
+    deterministic data into the prompt so the agent reasons over ground-truth
+    rather than hallucinating recon results.  Pre-collection runs sequentially
+    within this function — no new threads or shared state are created.
     """
     start = time.time()
     phase = PhaseResult(phase_name="recon", success=False)
@@ -273,10 +280,21 @@ def run_phase_recon(
     ensure_dir(config.output_dir)
     _check_stop(stop_event)
 
+    # ── Hybrid pre-collection (DESIGN_REVIEW §4) ─────────────────────
+    # Runs source analysis, nmap, and HTTP probing BEFORE the agent.
+    # Each step checks stop_event and degrades gracefully on failure.
+    precollect_vars = run_precollection(
+        target_url=config.target_url,
+        repo_path=config.repo_path,
+        stop_event=stop_event,
+    )
+
     # Build prompt variables
     prompt_vars = {
         "TARGET_URL": config.target_url,
         "REPO_PATH": config.repo_path,
+        # Inject pre-collected data as template variables
+        **precollect_vars,
     }
 
     # Inject skill workflow instructions into variables
@@ -293,7 +311,21 @@ def run_phase_recon(
     if agent_runner:
         try:
             output = agent_runner(prompt_text, "recon")
-            save_deliverable("recon_report.md", output, config.output_dir)
+            # Only save agent text output if the deliverable wasn't already
+            # saved via the save_deliverable tool during the agentic loop.
+            # If the agent used the tool, the file on disk is likely better
+            # than the agent's final conversational text response.
+            recon_already_saved = (config.output_dir / "recon_report.md").exists()
+            if recon_already_saved:
+                existing = (config.output_dir / "recon_report.md").read_text(encoding="utf-8")
+                # Prefer the longer version (tool-saved structured report vs brief text)
+                if len(output.strip()) > len(existing.strip()):
+                    save_deliverable("recon_report.md", output, config.output_dir)
+                else:
+                    logger.info("Keeping tool-saved recon_report.md (%d chars > agent text %d chars)",
+                                len(existing), len(output))
+            else:
+                save_deliverable("recon_report.md", output, config.output_dir)
             phase.deliverables.append("recon_report.md")
         except Exception as e:
             phase.errors.append(f"Agent execution failed: {e}")
@@ -672,6 +704,50 @@ def load_replay_deliverables(output_dir: Path = DELIVERABLES_DIR) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Phase metadata — expected deliverables & agent names
+# ---------------------------------------------------------------------------
+
+_PHASE_META: dict[str, dict[str, Any]] = {
+    "recon": {
+        "agent_name": "recon-agent",
+        "expected_deliverables": ["recon_report.md"],
+    },
+    "analysis": {
+        "agent_name": "analysis-agent (injection + xss)",
+        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md"],
+    },
+    "exploit": {
+        "agent_name": "exploit-agent (injection + xss)",
+        "expected_deliverables": ["findings_injection.md", "findings_xss.md"],
+    },
+    "report": {
+        "agent_name": "report-agent",
+        "expected_deliverables": ["pentest_report.md"],
+    },
+}
+
+
+def _verify_deliverables(
+    phase_key: str,
+    output_dir: Path,
+) -> tuple[list[str], list[str]]:
+    """Check expected deliverables for a phase exist on disk.
+
+    Returns ``(found, missing)`` — two lists of file names.
+    """
+    meta = _PHASE_META.get(phase_key, {})
+    expected = meta.get("expected_deliverables", [])
+    found: list[str] = []
+    missing: list[str] = []
+    for name in expected:
+        if (output_dir / name).exists():
+            found.append(name)
+        else:
+            missing.append(name)
+    return found, missing
+
+
+# ---------------------------------------------------------------------------
 # Full pipeline orchestrator
 # ---------------------------------------------------------------------------
 
@@ -708,13 +784,18 @@ def run_pipeline(
         config = PipelineConfig()
 
     pipeline_start = time.time()
+    pipeline_start_dt = datetime.now()
     result = PipelineResult()
 
     # Initialize skill registry
     registry = SkillRegistry(skills_dir)
     registry.freeze()  # Prevent reload during pipeline run (Race condition #8)
+
+    logger.info("=" * 60)
+    logger.info("PIPELINE START — %s", pipeline_start_dt.strftime("%Y-%m-%d %H:%M:%S"))
+    logger.info("=" * 60)
     logger.info(
-        "Pipeline starting — skills loaded: %s", registry.skill_names
+        "Skills loaded: %s", registry.skill_names
     )
     logger.info(
         "Target: %s | Repo: %s | Output: %s",
@@ -723,12 +804,12 @@ def run_pipeline(
 
     ensure_dir(config.output_dir)
 
-    # Phase definitions
-    phases: list[tuple[str, Callable]] = [
-        ("Phase 0: Recon", run_phase_recon),
-        ("Phase 1: Analysis", run_phase_analysis),
-        ("Phase 2: Exploit", run_phase_exploit),
-        ("Phase 3: Report", run_phase_report),
+    # Phase definitions — (label, key, function)
+    phases: list[tuple[str, str, Callable]] = [
+        ("Phase 0: Recon", "recon", run_phase_recon),
+        ("Phase 1: Analysis", "analysis", run_phase_analysis),
+        ("Phase 2: Exploit", "exploit", run_phase_exploit),
+        ("Phase 3: Report", "report", run_phase_report),
     ]
 
     # Resume support — skip phases before the requested starting point
@@ -743,13 +824,22 @@ def run_pipeline(
             )
             phases = phases[skip_count:]
 
-    for phase_label, phase_fn in phases:
+    for phase_label, phase_key, phase_fn in phases:
         if stop_event and stop_event.is_set():
             logger.info("Pipeline aborted by user before %s", phase_label)
             break
 
+        meta = _PHASE_META.get(phase_key, {})
+        agent_name = meta.get("agent_name", phase_key)
+        phase_start_dt = datetime.now()
+
         logger.info("=" * 60)
-        logger.info("Starting %s", phase_label)
+        logger.info(
+            "[%s] Starting %s  (agent: %s)",
+            phase_start_dt.strftime("%H:%M:%S"),
+            phase_label,
+            agent_name,
+        )
         logger.info("=" * 60)
 
         try:
@@ -757,18 +847,22 @@ def run_pipeline(
         except Exception as e:
             logger.error("%s FAILED with exception: %s", phase_label, e)
             phase_result = PhaseResult(
-                phase_name=phase_label,
+                phase_name=phase_key,
                 success=False,
                 errors=[f"Unhandled exception: {e}"],
             )
 
+        phase_end_dt = datetime.now()
         result.phases.append(phase_result)
         result.deliverables_generated.extend(phase_result.deliverables)
 
         status = "PASSED" if phase_result.success else "FAILED"
         logger.info(
-            "%s %s (%.1fs, deliverables: %s)",
-            phase_label, status,
+            "[%s] %s %s  (agent: %s, duration: %.1fs, deliverables: %s)",
+            phase_end_dt.strftime("%H:%M:%S"),
+            phase_label,
+            status,
+            agent_name,
             phase_result.duration_seconds,
             phase_result.deliverables,
         )
@@ -776,12 +870,38 @@ def run_pipeline(
             for err in phase_result.errors:
                 logger.warning("  Error: %s", err)
 
+        # ── Deliverable gate check ────────────────────────────────────
+        # Verify expected deliverables exist on disk before advancing
+        # to the next phase.  Missing files are logged as warnings but
+        # do NOT block the pipeline — subsequent phases will degrade
+        # gracefully with whatever data is available.
+        found, missing = _verify_deliverables(phase_key, config.output_dir)
+        if found:
+            logger.info(
+                "  Deliverable gate [%s]: found %s",
+                phase_key,
+                found,
+            )
+        if missing:
+            logger.warning(
+                "  Deliverable gate [%s]: MISSING %s — downstream phases may be degraded",
+                phase_key,
+                missing,
+            )
+
+    pipeline_end_dt = datetime.now()
     result.total_duration_seconds = time.time() - pipeline_start
     registry.unfreeze()  # Re-allow reload after pipeline completes
+
     logger.info("=" * 60)
     logger.info(
-        "Pipeline complete in %.1fs — %d deliverables generated",
+        "PIPELINE COMPLETE — %s  (started: %s, duration: %.1fs, deliverables: %d)",
+        pipeline_end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        pipeline_start_dt.strftime("%H:%M:%S"),
         result.total_duration_seconds,
         len(result.deliverables_generated),
     )
+    if result.deliverables_generated:
+        logger.info("  Generated: %s", result.deliverables_generated)
+    logger.info("=" * 60)
     return result

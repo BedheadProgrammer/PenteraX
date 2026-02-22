@@ -7,9 +7,10 @@ Each skill follows the [Anthropic skill-creator](https://github.com/anthropics/s
 
 | Skill | Purpose | Pipeline Phase |
 |-------|---------|---------------|
-| [network-recon](network-recon/) | Structured JSON from nmap scans | Phase 0b: External Recon |
+| [network-recon](network-recon/) | Nmap scanning, parsing, and whatweb fingerprinting | Phase 0b: External Recon |
 | [response-analysis](response-analysis/) | Deliverable validation + retry (PenteraX §5.9) | Between all phases |
 | [vulnerability-lookup](vulnerability-lookup/) | CVE/exploit lookup for identified versions | Phase 1: Analysis |
+| [sql-injection](sql-injection/) | Automated SQL injection testing via sqlmap | Phase 2: Exploitation |
 
 ## Skill Structure
 

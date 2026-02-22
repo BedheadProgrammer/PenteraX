@@ -120,6 +120,35 @@ Input: path to nmap XML file (e.g., /tmp/nmap_scan.xml)
 Output: JSON with hosts, ports, services, versions
 ```
 
+### network_recon_run_nmap
+Runs nmap against a target and returns structured JSON directly.
+```
+Input: {"target": "192.168.1.1", "profile": "web-focused"}
+Output: JSON with scan_info, hosts, ports, services, versions
+Profiles: quick, standard, stealth, web-focused (default)
+```
+- Uses AWS-safe flags automatically (-Pn, --host-timeout)
+- Handles nmap path discovery cross-platform
+
+### network_recon_run_whatweb
+Runs whatweb (or Python fallback) for web technology fingerprinting.
+```
+Input: {"target_url": "http://target:3000"}
+Output: JSON with technologies list (name, version, source)
+```
+- Falls back to a Python-based fingerprinter if whatweb is not installed
+- Identifies frameworks, CMS, JS libraries, server software
+
+### sql_injection_run_sqlmap
+Runs sqlmap to test a specific endpoint/parameter for SQL injection.
+```
+Input: {"target_url": "http://target:3000/rest/products/search?q=test", "param": "q"}
+Output: JSON with injectable (bool), technique, payloads, tables
+```
+- Always runs in --batch (non-interactive) mode
+- Default: --dbms=sqlite, --level=3, --risk=2, --technique=BEUST
+- Optional: tamper scripts, dump_tables, custom headers
+
 ### vulnerability_lookup_cve
 Queries CVEs for a product/version pair.
 ```

@@ -24,6 +24,7 @@ from .gui_events import (
 )
 from .logging_handler import QueueLoggingHandler, setup_logging
 from .pipeline import run_pipeline, PipelineConfig, PipelineResult, load_replay_deliverables, save_replay_snapshot
+from .precollect import run_precollection, collect_source_analysis, collect_nmap_scan, collect_http_probes
 from .preflight import run_preflight, PreflightResult
 from .skills.skill_loader import SkillRegistry, SkillMetadata, SkillResult
 from .skills.skill_wrappers import (
@@ -67,6 +68,11 @@ __all__ = [
     "PipelineResult",
     "load_replay_deliverables",
     "save_replay_snapshot",
+    # Pre-collection
+    "run_precollection",
+    "collect_source_analysis",
+    "collect_nmap_scan",
+    "collect_http_probes",
     # Skills
     "SkillRegistry",
     "SkillMetadata",

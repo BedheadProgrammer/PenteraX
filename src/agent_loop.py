@@ -18,10 +18,16 @@ from typing import Any, Callable
 from .skills.skill_loader import SkillRegistry, SkillResult, PROJECT_ROOT
 from .skills.skill_wrappers import (
     parse_nmap,
+    run_nmap,
+    run_whatweb,
+    run_sqlmap,
+    run_http_request,
     validate_deliverable,
     lookup_cve,
     batch_lookup_cve,
     format_known_vulns_for_prompt,
+    format_technologies_for_prompt,
+    format_sqlmap_finding,
     nmap_to_markdown,
 )
 from .pipeline import save_deliverable, DELIVERABLES_DIR
@@ -118,6 +124,164 @@ MCP_TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "network_recon_run_nmap",
+        "description": (
+            "Run nmap against a target host and return structured JSON with "
+            "open ports, services, versions, and script output. Supports scan "
+            "profiles: quick, standard, stealth, web-focused."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Target host or IP to scan.",
+                },
+                "profile": {
+                    "type": "string",
+                    "description": "Scan profile.",
+                    "enum": ["quick", "standard", "stealth", "web-focused"],
+                    "default": "web-focused",
+                },
+                "ports": {
+                    "type": "string",
+                    "description": "Port specification override (e.g. '80,443,3000').",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (default: 180).",
+                    "default": 180,
+                },
+            },
+            "required": ["target"],
+        },
+    },
+    {
+        "name": "network_recon_run_whatweb",
+        "description": (
+            "Run whatweb (or Python fallback) to fingerprint web technologies "
+            "at the target URL. Returns identified frameworks, CMS, JS libraries, "
+            "server software with versions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_url": {
+                    "type": "string",
+                    "description": "Target URL to fingerprint.",
+                },
+                "aggression": {
+                    "type": "integer",
+                    "description": "WhatWeb aggression level 1-4 (default: 3).",
+                    "default": 3,
+                },
+            },
+            "required": ["target_url"],
+        },
+    },
+    {
+        "name": "sql_injection_run_sqlmap",
+        "description": (
+            "Run sqlmap against a target endpoint to test for SQL injection. "
+            "Returns whether the parameter is injectable, the technique used, "
+            "payloads, and optionally discovered tables. Always uses --batch "
+            "(non-interactive) mode."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_url": {
+                    "type": "string",
+                    "description": "Target URL with query parameters.",
+                },
+                "param": {
+                    "type": "string",
+                    "description": "Parameter to test for SQL injection.",
+                },
+                "method": {
+                    "type": "string",
+                    "description": "HTTP method (GET/POST). Auto-detected if omitted.",
+                },
+                "data": {
+                    "type": "string",
+                    "description": "POST body (JSON string or form data).",
+                },
+                "headers": {
+                    "type": "string",
+                    "description": "Extra headers (comma-separated key:value).",
+                },
+                "dbms": {
+                    "type": "string",
+                    "description": "Target DBMS (default: sqlite).",
+                    "default": "sqlite",
+                },
+                "level": {
+                    "type": "integer",
+                    "description": "Test level 1-5 (default: 3).",
+                    "default": 3,
+                },
+                "risk": {
+                    "type": "integer",
+                    "description": "Risk level 1-3 (default: 2).",
+                    "default": 2,
+                },
+                "technique": {
+                    "type": "string",
+                    "description": "Injection techniques: B=Boolean, E=Error, U=Union, S=Stacked, T=Time (default: BEUST).",
+                    "default": "BEUST",
+                },
+                "tamper": {
+                    "type": "string",
+                    "description": "Tamper scripts (comma-separated, e.g. 'space2comment,between').",
+                },
+                "dump_tables": {
+                    "type": "boolean",
+                    "description": "If true, enumerate tables on confirmed injection.",
+                    "default": False,
+                },
+            },
+            "required": ["target_url", "param"],
+        },
+    },
+    {
+        "name": "http_request",
+        "description": (
+            "Send an HTTP request to a URL and return the response (status code, "
+            "headers, body). Use this as your primary tool for manual exploitation "
+            "testing — equivalent to curl. Supports GET, POST, PUT, DELETE. "
+            "Returns truncated response body (max 10KB)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Full URL to request (including query params for GET).",
+                },
+                "method": {
+                    "type": "string",
+                    "description": "HTTP method (default: GET).",
+                    "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+                    "default": "GET",
+                },
+                "headers": {
+                    "type": "object",
+                    "description": "HTTP headers as key-value pairs (e.g. {\"Content-Type\": \"application/json\"}).",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Request body (for POST/PUT). Use JSON string for JSON APIs.",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout in seconds (default: 30).",
+                    "default": 30,
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
         "name": "save_deliverable",
         "description": (
             "Save content to a named deliverable file in the deliverables/ "
@@ -165,6 +329,10 @@ class SkillToolDispatcher:
         self.registry = registry
         self._handlers: dict[str, Callable[..., dict[str, Any]]] = {
             "network_recon_parse_nmap": self._handle_parse_nmap,
+            "network_recon_run_nmap": self._handle_run_nmap,
+            "network_recon_run_whatweb": self._handle_run_whatweb,
+            "sql_injection_run_sqlmap": self._handle_run_sqlmap,
+            "http_request": self._handle_http_request,
             "response_analysis_validate": self._handle_validate,
             "vulnerability_lookup_cve": self._handle_lookup_cve,
             "save_deliverable": self._handle_save_deliverable,
@@ -236,6 +404,81 @@ class SkillToolDispatcher:
             cwe=cwe,
             keyword=keyword,
             severity=severity,
+        )
+        return self._skill_result_to_dict(result)
+
+    def _handle_run_nmap(
+        self,
+        target: str,
+        profile: str = "web-focused",
+        ports: str | None = None,
+        timeout: int = 180,
+    ) -> dict[str, Any]:
+        result = run_nmap(
+            self.registry,
+            target=target,
+            profile=profile,
+            ports=ports,
+            timeout=timeout,
+        )
+        return self._skill_result_to_dict(result)
+
+    def _handle_run_whatweb(
+        self,
+        target_url: str,
+        aggression: int = 3,
+    ) -> dict[str, Any]:
+        result = run_whatweb(
+            self.registry,
+            target_url=target_url,
+            aggression=aggression,
+        )
+        return self._skill_result_to_dict(result)
+
+    def _handle_run_sqlmap(
+        self,
+        target_url: str,
+        param: str,
+        method: str | None = None,
+        data: str | None = None,
+        headers: str | None = None,
+        dbms: str = "sqlite",
+        level: int = 3,
+        risk: int = 2,
+        technique: str = "BEUST",
+        tamper: str | None = None,
+        dump_tables: bool = False,
+    ) -> dict[str, Any]:
+        result = run_sqlmap(
+            self.registry,
+            target_url=target_url,
+            param=param,
+            method=method,
+            data=data,
+            headers=headers,
+            dbms=dbms,
+            level=level,
+            risk=risk,
+            technique=technique,
+            tamper=tamper,
+            dump_tables=dump_tables,
+        )
+        return self._skill_result_to_dict(result)
+
+    def _handle_http_request(
+        self,
+        url: str,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: str | None = None,
+        timeout: int = 30,
+    ) -> dict[str, Any]:
+        result = run_http_request(
+            url=url,
+            method=method,
+            headers=headers,
+            body=body,
+            timeout=timeout,
         )
         return self._skill_result_to_dict(result)
 
