@@ -10,9 +10,9 @@
 
 - [ ] `npm install` succeeds without errors
 - [ ] `npx tsc --noEmit` succeeds (TypeScript compiles)
-- [ ] OWASP Juice Shop accessible at `http://54.146.141.88:3000`
-- [ ] Juice Shop source code cloned into `repos/juice-shop/`
-- [ ] External tools available: `nmap`, `whatweb`, `sqlmap`, `curl`
+- [x] OWASP Juice Shop accessible at `http://54.146.141.88:3000`
+- [x] Juice Shop source code cloned into `repos/juice-shop/`
+- [x] External tools available: `nmap`, `whatweb`, `sqlmap`, `curl`
 - [ ] `.env` file created with valid `ANTHROPIC_API_KEY`
 - [ ] XSS vulnerability research documented (E3 has attack surface knowledge)
 
@@ -45,15 +45,15 @@
 
 > **Files created/modified:** None in repo (AWS instance & system-level setup)
 
-- [ ] Verify AWS Juice Shop instance is running at `http://54.146.141.88:3000`
-- [ ] Ensure AWS Security Group allows inbound TCP on ports 22, 80, 443, 3000
-- [ ] Ensure AWS Security Group allows nmap scan traffic (don't block SYN probes)
-- [ ] Clone Juice Shop source code into `repos/juice-shop/`
-- [ ] Install `nmap` (verify with `nmap --version`)
-- [ ] Install `whatweb` (verify with `whatweb --version`)
-- [ ] Install `sqlmap` via pip (verify with `sqlmap --version`)
-- [ ] Verify `curl` is available (usually pre-installed)
-- [ ] Test Playwright MCP connection: `npx @playwright/mcp@latest --headless` (verify init handshake)
+- [x] Verify AWS Juice Shop instance is running at `http://54.146.141.88:3000`
+- [x] Ensure AWS Security Group allows inbound TCP on ports 22, 80, 443, 3000
+- [x] Ensure AWS Security Group allows nmap scan traffic (don't block SYN probes)
+- [x] Clone Juice Shop source code into `repos/juice-shop/`
+- [x] Install `nmap` (verify with `nmap --version`)
+- [x] Install `whatweb` (verify with `whatweb --version`)
+- [x] Install `sqlmap` via pip (verify with `sqlmap --version`)
+- [x] Verify `curl` is available (usually pre-installed)
+- [x] Test Playwright MCP connection: `npx @playwright/mcp@latest --headless` (verify init handshake)
 
 ### Stream C — Vulnerability Research [E3: XSS + Report]
 
