@@ -156,6 +156,9 @@ Execute the streams in the following four steps. Within each step, all
 listed streams run concurrently. A step cannot begin until every stream in
 the preceding step has completed.
 
+> **Engineer key:** E1 = Infrastructure, E2 = Injection, E3 = XSS/Report
+> (see Work Streams above for full assignments)
+
 ```
 ═══════════════════════════════════════════════════════════════
   PHASE 2 GATE  ──  runAgent() works, all prompts drafted
@@ -219,7 +222,7 @@ Phase 2 Gate → B1 (recon) → B2 (injection) ─┐
                           → C1 (XSS)     ───┤──→ C2 (report) → Phase 3 Gate
 ```
 
-**Shortest path to Gate 3:** Phase 2 → B1 → {B2 ‖ C1} → C2
+**Critical path:** Phase 2 → B1 → {B2 ‖ C1} → C2
 
 A1 and A2 run on the side; they are on the critical path only if A1 takes
 longer than B1. Keeping A1 focused on the orchestrator (no prompt iteration)
