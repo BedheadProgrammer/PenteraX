@@ -419,9 +419,16 @@ def run_phase_recon(
                 else:
                     logger.info("Keeping tool-saved recon_report.md (%d chars > agent text %d chars)",
                                 len(existing), len(output))
-            else:
+            elif output.strip():
                 save_deliverable("recon_report.md", output, config.output_dir)
-            phase.deliverables.append("recon_report.md")
+            else:
+                logger.warning(
+                    "Agent returned empty output for recon_report.md — skipping save"
+                )
+            # Only count as delivered if file exists and is non-empty
+            recon_path_check = config.output_dir / "recon_report.md"
+            if recon_path_check.exists() and recon_path_check.stat().st_size > 0:
+                phase.deliverables.append("recon_report.md")
         except Exception as e:
             phase.errors.append(f"Agent execution failed: {e}")
             phase.duration_seconds = time.time() - start
@@ -493,9 +500,17 @@ def _run_single_analysis(
                 else:
                     logger.info("Keeping tool-saved %s (%d chars > agent text %d chars)",
                                 deliverable_name, len(existing), len(output))
-            else:
+            elif output.strip():
                 save_deliverable(deliverable_name, output, config.output_dir)
-            delivered = deliverable_name
+            else:
+                logger.warning(
+                    "Agent returned empty output for %s — skipping save",
+                    deliverable_name,
+                )
+            # Only count as delivered if file exists and is non-empty
+            path_check = config.output_dir / deliverable_name
+            if path_check.exists() and path_check.stat().st_size > 0:
+                delivered = deliverable_name
         except Exception as e:
             return "", f"Analysis-{analysis_type} agent failed: {e}", []
 
@@ -638,9 +653,17 @@ def _run_single_exploit(
                 else:
                     logger.info("Keeping tool-saved %s (%d chars > agent text %d chars)",
                                 findings_file, len(existing), len(output))
-            else:
+            elif output.strip():
                 save_deliverable(findings_file, output, config.output_dir)
-            delivered = findings_file
+            else:
+                logger.warning(
+                    "Agent returned empty output for %s — skipping save",
+                    findings_file,
+                )
+            # Only count as delivered if file exists and is non-empty
+            path_check = config.output_dir / findings_file
+            if path_check.exists() and path_check.stat().st_size > 0:
+                delivered = findings_file
         except Exception as e:
             return "", f"Exploit-{exploit_type} agent failed: {e}", []
 
@@ -758,9 +781,16 @@ def run_phase_report(
                 else:
                     logger.info("Keeping tool-saved pentest_report.md (%d chars > agent text %d chars)",
                                 len(existing), len(output))
-            else:
+            elif output.strip():
                 save_deliverable("pentest_report.md", output, config.output_dir)
-            phase.deliverables.append("pentest_report.md")
+            else:
+                logger.warning(
+                    "Agent returned empty output for pentest_report.md — skipping save"
+                )
+            # Only count as delivered if file exists and is non-empty
+            report_path_check = config.output_dir / "pentest_report.md"
+            if report_path_check.exists() and report_path_check.stat().st_size > 0:
+                phase.deliverables.append("pentest_report.md")
         except Exception as e:
             phase.errors.append(f"Report agent failed: {e}")
 
