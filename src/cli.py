@@ -384,7 +384,7 @@ def _run_pipeline_from_config(
         runner = AgentRunner(
             api_key=cfg.anthropic_api_key,
             max_budget_usd=cfg.max_budget_usd,
-            max_agent_budget_usd=4.0,
+            max_agent_budget_usd=3.50,
             stop_event=stop_event,
             tools=MCP_TOOLS,
             tool_dispatcher=dispatcher,
