@@ -458,6 +458,7 @@ class PenteraXApp(ctk.CTk):
             if not replay:
                 from .agent_runner import AgentRunner
                 from .agent_loop import MCP_TOOLS, SkillToolDispatcher
+                from .artifact_store import ArtifactStore
                 from .skills.skill_loader import SkillRegistry
 
                 runner = AgentRunner(
@@ -468,8 +469,9 @@ class PenteraXApp(ctk.CTk):
                 )
 
                 # Wire agentic loop (tools + dispatcher)
+                artifact_store = ArtifactStore()
                 registry = SkillRegistry()
-                dispatcher = SkillToolDispatcher(registry)
+                dispatcher = SkillToolDispatcher(registry, artifact_store=artifact_store)
                 runner._tools = MCP_TOOLS
                 runner._tool_dispatcher = dispatcher
                 agent_runner_fn = runner.run

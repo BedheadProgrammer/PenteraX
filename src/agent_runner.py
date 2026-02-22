@@ -69,8 +69,9 @@ _OUTPUT_PRICE_PER_M = 15.00  # $15.00 per 1 M output tokens
 _INPUT_PRICE = _INPUT_PRICE_PER_M / 1_000_000
 _OUTPUT_PRICE = _OUTPUT_PRICE_PER_M / 1_000_000
 
-# Retry schedule — base delays in seconds (actual = base * 2^attempt)
-_RETRY_BASE_DELAYS = [2, 8, 32]
+# Retry schedule — delays in seconds.  Rate-limit (429) errors use a
+# longer back-off because Anthropic's sliding window is per-minute.
+_RETRY_BASE_DELAYS = [30, 60, 120]
 _RETRYABLE_EXCEPTIONS = (
     anthropic.RateLimitError,
     anthropic.APIConnectionError,
@@ -115,7 +116,7 @@ class AgentRunner:
         self,
         api_key: str,
         max_budget_usd: float = 10.0,
-        max_agent_budget_usd: float = 4.0,
+        max_agent_budget_usd: float = 5.0,
         stop_event: threading.Event | None = None,
         event_queue: queue.Queue | None = None,
         tools: list[dict[str, Any]] | None = None,
@@ -202,7 +203,7 @@ class AgentRunner:
         Continues calling the API until the model returns a text-only response
         (no tool_use blocks) or the budget / stop event triggers.
         """
-        max_tool_rounds = 25  # safety cap to avoid infinite loops
+        max_tool_rounds = 60  # raised from 40 — deep exploitation chains need more iterations
 
         for _round in range(max_tool_rounds):
             self._check_stop()

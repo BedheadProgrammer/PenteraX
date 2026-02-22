@@ -271,6 +271,30 @@ def handle_browser_evaluate(expression: str) -> dict[str, Any]:
             return {"success": False, "error": str(exc)}
 
 
+def handle_browser_set_auth(token: str) -> dict[str, Any]:
+    """Inject a JWT token into the browser context.
+
+    Sets the ``Authorization`` header for all subsequent requests and stores
+    the token in ``localStorage`` so that Angular SPAs (e.g. Juice Shop)
+    automatically pick it up.  Call this *after* obtaining a JWT via
+    ``http_request`` to avoid wasting browser calls on a login flow.
+    """
+    with PlaywrightManager._lock:
+        PlaywrightManager._tick()
+        mgr = PlaywrightManager.get()
+        page = mgr._ensure_page()
+        try:
+            # Set Authorization header for all future navigation/fetch calls
+            mgr._context.set_extra_http_headers({
+                "Authorization": f"Bearer {token}"
+            })
+            # Also set in localStorage so the Angular SPA reads it directly
+            page.evaluate(f"window.localStorage.setItem('token', '{token}')")
+            return {"success": True, "message": "Auth token injected into browser context"}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+
 def handle_browser_network_requests() -> dict[str, Any]:
     """Return captured network request/response pairs since last navigation."""
     with PlaywrightManager._lock:

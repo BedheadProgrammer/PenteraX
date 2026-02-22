@@ -582,15 +582,21 @@ def run_phase_analysis(
         ("ssrf", "analysis-ssrf.md", "hypotheses_ssrf.md", "hypotheses"),
     ]
 
-    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="analysis") as pool:
-        futures = {
-            pool.submit(
+    # Stagger submissions to avoid blowing the per-minute input-token
+    # rate limit (all 5 prompts + tool defs sent at once ≈ 200K+ tokens).
+    _ANALYSIS_STAGGER_SECS = 15
+
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis") as pool:
+        futures: dict[Any, str] = {}
+        for idx, (a_type, tmpl, deliv, sch) in enumerate(sub_phases):
+            if idx > 0:
+                time.sleep(_ANALYSIS_STAGGER_SECS)
+            fut = pool.submit(
                 _run_single_analysis,
                 a_type, tmpl, deliv, sch,
                 registry, config, prompt_vars_base, agent_runner, stop_event,
-            ): a_type
-            for a_type, tmpl, deliv, sch in sub_phases
-        }
+            )
+            futures[fut] = a_type
 
         for future in as_completed(futures):
             a_type = futures[future]
@@ -712,15 +718,21 @@ def run_phase_exploit(
         ("ssrf", "exploit-ssrf.md", "hypotheses_ssrf.md", "findings_ssrf.md"),
     ]
 
-    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="exploit") as pool:
-        futures = {
-            pool.submit(
+    # Stagger submissions to avoid blowing the per-minute input-token
+    # rate limit (all 5 prompts + tool defs sent at once ≈ 200K+ tokens).
+    _EXPLOIT_STAGGER_SECS = 15
+
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="exploit") as pool:
+        futures: dict[Any, str] = {}
+        for idx, (e_type, tmpl, hyp, find) in enumerate(sub_phases):
+            if idx > 0:
+                time.sleep(_EXPLOIT_STAGGER_SECS)
+            fut = pool.submit(
                 _run_single_exploit,
                 e_type, tmpl, hyp, find,
                 registry, config, agent_runner, stop_event,
-            ): e_type
-            for e_type, tmpl, hyp, find in sub_phases
-        }
+            )
+            futures[fut] = e_type
 
         for future in as_completed(futures):
             e_type = futures[future]
@@ -1089,6 +1101,20 @@ def run_pipeline(
                 phase_key,
                 missing,
             )
+
+        # ── Rate-limit cooldown between heavy phases ──────────────────
+        # The Anthropic API enforces a sliding per-minute input-token
+        # window.  Inserting a pause after analysis/exploit phases lets
+        # the window drain before submitting the next batch of prompts.
+        _RATE_LIMIT_COOLDOWN_PHASES = {"analysis", "exploit"}
+        if phase_key in _RATE_LIMIT_COOLDOWN_PHASES and phase_result.success:
+            cooldown = 30  # seconds
+            logger.info(
+                "  Rate-limit cooldown: waiting %ds before next phase…",
+                cooldown,
+            )
+            print(f"  [rate-limit] Cooling down {cooldown}s before next phase…", flush=True)
+            time.sleep(cooldown)
 
     pipeline_end_dt = datetime.now()
     result.total_duration_seconds = time.time() - pipeline_start
