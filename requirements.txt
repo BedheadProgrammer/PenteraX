@@ -1,0 +1,11 @@
+# SPAIDER Agent - Python Dependencies
+# Core
+requests>=2.31.0
+pyyaml>=6.0
+
+# CVE lookup (stdlib urllib used, but requests as fallback)
+# No additional deps needed - lookup_cve.py uses stdlib urllib
+
+# Future extensions
+# anthropic>=0.40.0       # Uncomment when integrating Claude Agent SDK
+# playwright>=1.40.0      # Uncomment for browser automation
