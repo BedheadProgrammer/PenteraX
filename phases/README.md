@@ -12,7 +12,7 @@ Each phase has its own to-do list file that should be updated as work progresses
 
 | Phase | Name | Hours | Key Objective | Gate Criteria |
 |-------|------|-------|---------------|---------------|
-| **1** | [Foundation & Environment Setup](phase-1-foundation.md) | 0–2 | Project scaffold, target running, research complete | `npm install` succeeds, `npx tsc --noEmit` passes, Juice Shop accessible on `:3000`, tools installed |
+| **1** | [Foundation & Environment Setup](phase-1-foundation.md) | 0–2 | Project scaffold, target running, research complete | `npm install` succeeds, `npx tsc --noEmit` passes, Juice Shop accessible at `http://54.146.141.88:3000`, tools installed |
 | **2** | [Core Infrastructure Build](phase-2-core-infrastructure.md) | 2–4 | `runAgent()` works, prompt drafts complete | Trivial agent runs via SDK, all prompt files exist |
 | **3** | [Pipeline Integration & First E2E](phase-3-integration.md) | 4–8 | Full pipeline runs end-to-end | At least 1 real vulnerability found |
 | **4** | [Prompt Engineering & Reliability](phase-4-reliability.md) | 8–16 | Agents reliably find vulnerabilities | 2+ vulns found across 3 consecutive runs |

@@ -24,8 +24,8 @@
 ### Dress Rehearsals [ALL]
 
 - [ ] **Rehearsal 1 — Full live run:**
-  - [ ] Start Juice Shop container (verify accessible)
-  - [ ] Run `npx ts-node src/cli.ts --url=http://localhost:3000 --repo=./repos/juice-shop`
+  - [ ] Verify AWS Juice Shop instance running at `http://54.146.141.88:3000`
+  - [ ] Run `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=./repos/juice-shop`
   - [ ] Time each phase
   - [ ] Note any issues (slow phases, failed agents, formatting problems)
   - [ ] Check all deliverables:
@@ -63,7 +63,7 @@
   - [ ] "What vulnerability classes are supported?"
   - [ ] "What's the false positive rate?"
 - [ ] Final checklist before demo:
-  - [ ] Docker container running and healthy
+  - [ ] Docker container running and healthy at `http://54.146.141.88:3000`
   - [ ] API key has sufficient credits
   - [ ] Internet connection stable
   - [ ] Backup deliverables ready
@@ -76,7 +76,7 @@
 - [ ] **If live run is too slow:** Skip to pre-computed results, explain the pipeline verbally
 - [ ] **If only 1 vulnerability found:** Present it as a focused demo, mention the other class was "in progress"
 - [ ] **If API key fails:** Use backup recording
-- [ ] **If Docker container crashes:** Restart container, use `--replay` while it recovers
+- [ ] **If AWS instance dies:** Switch to local Docker fallback (`docker run -d -p 3000:3000 bkimminich/juice-shop`) and update target to `http://localhost:3000`, or use `--replay` while it recovers
 
 ---
 

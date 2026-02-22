@@ -10,7 +10,7 @@
 
 - [ ] `pipeline.ts` orchestrates all agents in sequence: recon → analysis → exploit → report
 - [ ] `cli.ts` accepts `--url` and `--repo` arguments and triggers the pipeline
-- [ ] Running `npx ts-node src/cli.ts --url=http://localhost:3000 --repo=./repos/juice-shop` starts the pipeline
+- [ ] Running `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=./repos/juice-shop` starts the pipeline
 - [ ] `deliverables/recon_report.md` is generated with endpoint mapping from source code
 - [ ] `deliverables/hypotheses_injection.md` and `deliverables/hypotheses_xss.md` are generated
 - [ ] At least one of `deliverables/findings_injection.md` or `deliverables/findings_xss.md` contains a real proven vulnerability

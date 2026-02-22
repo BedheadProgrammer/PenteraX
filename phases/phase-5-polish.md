@@ -37,7 +37,7 @@
   - [ ] Project overview and architecture
   - [ ] Prerequisites (Node.js, Docker, API key, external tools)
   - [ ] Setup instructions (step-by-step)
-  - [ ] Usage: `npx ts-node src/cli.ts --url=... --repo=...`
+  - [ ] Usage: `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=...`
   - [ ] Available flags (`--verbose`, `--replay`)
   - [ ] Architecture diagram reference
   - [ ] Cost and timing expectations
@@ -72,7 +72,7 @@
 > **Files created:** demo script (external), architecture diagram
 
 - [ ] Write demo script (10-minute walkthrough):
-  - [ ] **Minute 0-1:** Show Juice Shop running, project structure overview
+  - [ ] **Minute 0-1:** Show Juice Shop running at `http://54.146.141.88:3000`, project structure overview
   - [ ] **Minute 1-2:** Launch pipeline with CLI command
   - [ ] **Minute 2-4:** Narrate Phase 0 Recon (source code reading, nmap)
   - [ ] **Minute 4-5:** Narrate Phase 1 Analysis (hypothesis generation)

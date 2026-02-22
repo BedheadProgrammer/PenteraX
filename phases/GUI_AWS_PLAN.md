@@ -157,7 +157,7 @@ All custom exception classes (see Architecture section above). This must exist b
 Centralized configuration module:
 - `load_dotenv()` from `.env` file at project root
 - `AppConfig` dataclass with fields:
-  - `target_url: str = ""` (empty — forces explicit config, replaces hardcoded `localhost:3000`)
+  - `target_url: str = ""` (empty — forces explicit config, replaces hardcoded `54.146.141.88:3000`)
   - `anthropic_api_key: str = ""`
   - `nvd_api_key: str | None = None`
   - `output_dir: Path = DELIVERABLES_DIR`
@@ -172,7 +172,7 @@ Centralized configuration module:
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 NVD_API_KEY=              # optional, higher rate limits
-TARGET_URL=http://<aws-ip>:3000
+TARGET_URL=http://54.146.141.88:3000
 ```
 
 ### Step 1.7 — Create `src/preflight.py`
@@ -180,7 +180,7 @@ Pre-flight validation module (runs before pipeline starts):
 
 | Check | Function | Why |
 |-------|----------|-----|
-| Target reachable | `check_target_reachable(url, timeout=10)` → HTTP GET, expect 200 | AWS security group misconfigs, wrong IP, Juice Shop not running |
+| Target reachable | `check_target_reachable(url, timeout=10)` → HTTP GET, expect 200 | AWS security group misconfigs, wrong IP, Juice Shop not running on 54.146.141.88 |
 | Nmap installed | `check_nmap_installed()` → `subprocess.run(["nmap", "--version"])` | Nmap is not bundled — may be missing |
 | API key valid | `check_api_key_valid(key)` → lightweight Anthropic API call | Catches bad keys before burning budget |
 | Disk space | `check_disk_space(output_dir, min_mb=100)` → `shutil.disk_usage()` | Long runs generate deliverables |
@@ -218,7 +218,7 @@ Expose new modules so `from src.config import AppConfig` works. Keep existing ex
 
 ### AWS Target Setup Note
 Remove all Docker/localhost references from phase-1-foundation.md. The target is a **pre-existing AWS instance**. User must ensure:
-- Juice Shop running on port 3000
+- Juice Shop running on `54.146.141.88` port 3000
 - Security group allows inbound TCP on ports 22, 80, 443, 3000
 - Security group allows nmap scan traffic (don't block SYN probes)
 
@@ -246,7 +246,7 @@ Claude SDK integration working, all prompt templates drafted with structured out
 - [ ] Budget tracking increments after a call (`runner.total_cost_usd > 0`)
 - [ ] All 6 prompt template files exist in `src/prompts/` with `{{VAR}}` placeholders
 - [ ] All 3 shared fragments exist in `src/prompts/shared/`
-- [ ] `load_prompt(PROMPTS_DIR / "recon.md", {"TARGET_URL": "http://example.com"})` returns substituted text
+- [ ] `load_prompt(PROMPTS_DIR / "recon.md", {"TARGET_URL": "http://54.146.141.88:3000"})` returns substituted text
 - [ ] Prompt templates contain explicit "Do NOT assume localhost" instructions
 
 ### Step 2.1 — Create `src/agent_runner.py`
@@ -413,7 +413,7 @@ src/prompts/shared/*.md    (no code deps — create in parallel)
 Agent runner wired into pipeline, GUI launches and controls the pipeline, first end-to-end run completes against AWS target.
 
 ### Gate Criteria (ALL must pass)
-- [ ] `python -m src --cli --target-url http://<aws-ip>:3000 --api-key sk-ant-...` starts the pipeline
+- [ ] `python -m src --cli --target-url http://54.146.141.88:3000 --api-key sk-ant-...` starts the pipeline
 - [ ] GUI launches with `python -m src` and all widgets render
 - [ ] Clicking "Run Preflight" shows pass/fail results in the log panel
 - [ ] Clicking "Start Pipeline" launches the background thread and logs appear in real-time
@@ -785,7 +785,7 @@ Successful live demo with backup recording. All contingencies tested.
 - [ ] Total cost < $25
 
 ### Demo Preparation Checklist
-1. Verify AWS Juice Shop instance running and accessible
+1. Verify AWS Juice Shop instance running and accessible at `http://54.146.141.88:3000`
 2. Pre-warm CVE cache: `python -c "from src.skills.skill_wrappers import ..."`
 3. Prepare replay recording from best Phase 4/5 run
 4. Test full pipeline 3x end-to-end (3 dress rehearsals)
@@ -795,7 +795,7 @@ Successful live demo with backup recording. All contingencies tested.
 | Scenario | Action |
 |----------|--------|
 | Claude API goes down | Switch to `--replay` mode |
-| AWS instance dies | Have local Docker Juice Shop ready: `docker run -d -p 3000:3000 bkimminich/juice-shop` |
+| AWS instance dies | Have local Docker Juice Shop ready: `docker run -d -p 3000:3000 bkimminich/juice-shop` and update target to `http://localhost:3000` |
 | Nmap hangs | GUI Stop button → skip recon → use cached recon deliverable |
 | Pipeline too slow | Switch to replay, narrate pre-computed results |
 | Only 1 vuln found | Present as focused demo, mention other class "in progress" |
