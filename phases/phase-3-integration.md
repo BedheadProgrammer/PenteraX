@@ -114,6 +114,119 @@ Parallel groups:
 
 ---
 
+## Execution Workflow — Parallel & Gated Streams
+
+### Phase 2 Gate Prerequisites
+
+Every Phase 3 stream requires at least one Phase 2 deliverable. The table
+below maps each stream to the Phase 2 gates that must pass before it can
+start.
+
+| Stream | Phase 2 Gate(s) Required | Key Deliverable Needed |
+|--------|--------------------------|------------------------|
+| **A1** | Stream A | `runAgent()` operational |
+| **A2** | _(gated by A1, not Phase 2 directly)_ | `runPipeline()` from A1 |
+| **B1** | Streams A + B | `runAgent()` + recon/injection prompts |
+| **B2** | _(gated by B1, not Phase 2 directly)_ | `recon_report.md` from B1 |
+| **C1** | Streams A + C | `runAgent()` + XSS prompts (also needs B1's `recon_report.md`) |
+| **C2** | _(gated by B2 + C1, not Phase 2 directly)_ | findings files from B2 + C1 |
+
+### Parallel vs. Gated Classification
+
+**Can execute in parallel (no dependency on each other):**
+
+| Parallel Group | Streams | Condition |
+|----------------|---------|-----------|
+| Group 1 | A1 ‖ B1 | Phase 2 gate passes |
+| Group 2 | B2 ‖ C1 | B1 delivers `recon_report.md` |
+| Group 2+ | A2 (joins Group 2) | A1 also complete |
+
+**Strictly gated (must wait for predecessor):**
+
+| Stream | Gated By | Reason |
+|--------|----------|--------|
+| A2 | A1 | Needs `runPipeline()` |
+| B2 | B1 | Needs `recon_report.md` |
+| C1 | B1 | Needs `recon_report.md` (cross-stream) |
+| C2 | B2 **and** C1 | Needs both `findings_injection.md` and `findings_xss.md` |
+
+### Recommended Execution Order
+
+Execute the streams in the following four steps. Within each step, all
+listed streams run concurrently. A step cannot begin until every stream in
+the preceding step has completed.
+
+```
+═══════════════════════════════════════════════════════════════
+  PHASE 2 GATE  ──  runAgent() works, all prompts drafted
+═══════════════════════════════════════════════════════════════
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 1 — Parallel                                          │
+│                                                             │
+│   [E1] Stream A1: pipeline.ts       ──► runPipeline()       │
+│                    ║                                        │
+│   [E2] Stream B1: recon agent test  ──► recon_report.md     │
+│                                                             │
+│   (A1 and B1 have no mutual dependency; run simultaneously) │
+└─────────────────────────────────────────────────────────────┘
+          │
+          ▼  (B1 must finish; A1 may still be running)
+┌─────────────────────────────────────────────────────────────┐
+│  Step 2 — Parallel (after B1 delivers recon_report.md)      │
+│                                                             │
+│   [E2] Stream B2: injection testing ──► findings_injection  │
+│                    ║                                        │
+│   [E3] Stream C1: XSS agent testing ──► findings_xss       │
+│                                                             │
+│   (B2 and C1 share the same input but do not conflict)      │
+│                                                             │
+│   If A1 is also complete, A2 may start here as well:        │
+│   [E1] Stream A2: CLI + E2E test    ──► validated pipeline  │
+└─────────────────────────────────────────────────────────────┘
+          │
+          ▼  (A1 must finish if it hasn't already)
+┌─────────────────────────────────────────────────────────────┐
+│  Step 3 — Sequential (if A2 was not started in Step 2)      │
+│                                                             │
+│   [E1] Stream A2: CLI + E2E test    ──► validated pipeline  │
+│                                                             │
+│   (Only needed when A1 finishes after B1)                   │
+└─────────────────────────────────────────────────────────────┘
+          │
+          ▼  (B2 and C1 must both finish)
+┌─────────────────────────────────────────────────────────────┐
+│  Step 4 — Sequential                                        │
+│                                                             │
+│   [E3] Stream C2: report agent test ──► pentest_report.md   │
+│                                                             │
+│   (Requires findings from both B2 and C1)                   │
+└─────────────────────────────────────────────────────────────┘
+          │
+          ▼
+═══════════════════════════════════════════════════════════════
+  PHASE 3 GATE  ──  full pipeline runs, ≥1 real vulnerability
+═══════════════════════════════════════════════════════════════
+```
+
+### Critical-Path Summary
+
+The longest sequential chain determines overall Phase 3 duration:
+
+```
+Phase 2 Gate → B1 (recon) → B2 (injection) ─┐
+                          → C1 (XSS)     ───┤──→ C2 (report) → Phase 3 Gate
+```
+
+**Shortest path to Gate 3:** Phase 2 → B1 → {B2 ‖ C1} → C2
+
+A1 and A2 run on the side; they are on the critical path only if A1 takes
+longer than B1. Keeping A1 focused on the orchestrator (no prompt iteration)
+ensures it finishes fast and unblocks A2.
+
+---
+
 ## Notes
 
 - **Highest-risk phase.** If `runAgent()` has issues, it blocks everything. B1/C1 should test standalone before the pipeline is wired.
