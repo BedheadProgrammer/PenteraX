@@ -1,0 +1,29 @@
+{
+  "name": "penterax",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BedheadProgrammer/PenteraX.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/BedheadProgrammer/PenteraX/issues"
+  },
+  "homepage": "https://github.com/BedheadProgrammer/PenteraX#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,5 +1,10 @@
 # ---- Standard project ignores ----
 
+# Node.js
+node_modules/
+dist/
+package-lock.json
+
 # Python virtual environment
 .venv/
 venv/
