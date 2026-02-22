@@ -573,13 +573,16 @@ def run_phase_analysis(
         "TARGET_URL": config.target_url,
     }
 
-    # Run injection + XSS analysis in parallel
+    # Run all analysis categories in parallel (5 categories)
     sub_phases = [
         ("injection", "analysis-injection.md", "hypotheses_injection.md", "hypotheses"),
         ("xss", "analysis-xss.md", "hypotheses_xss.md", "hypotheses"),
+        ("auth", "analysis-auth.md", "hypotheses_auth.md", "hypotheses_auth"),
+        ("authz", "analysis-authz.md", "hypotheses_authz.md", "hypotheses_authz"),
+        ("ssrf", "analysis-ssrf.md", "hypotheses_ssrf.md", "hypotheses_ssrf"),
     ]
 
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis") as pool:
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="analysis") as pool:
         futures = {
             pool.submit(
                 _run_single_analysis,
@@ -615,12 +618,13 @@ def _run_single_exploit(
     template: str,
     hyp_file: str,
     findings_file: str,
+    schema_type: str,
     registry: SkillRegistry,
     config: PipelineConfig,
     agent_runner: Callable[..., str] | None,
     stop_event: threading.Event | None,
 ) -> tuple[str, str | None, list[str]]:
-    """Run a single exploit sub-phase (injection or XSS).
+    """Run a single exploit sub-phase (injection, XSS, auth, authz, or SSRF).
 
     Returns ``(deliverable_name | "", error_msg | None, validation_errors)``.
     Designed to run inside a ``ThreadPoolExecutor``.
@@ -671,7 +675,7 @@ def _run_single_exploit(
     path = config.output_dir / findings_file
     if path.exists():
         passed, errors = validate_phase_output(
-            registry, path, "findings", config.max_retries,
+            registry, path, schema_type, config.max_retries,
             stop_event=stop_event,
         )
         if not passed:
@@ -702,18 +706,21 @@ def run_phase_exploit(
     _check_stop(stop_event)
 
     sub_phases = [
-        ("injection", "exploit-injection.md", "hypotheses_injection.md", "findings_injection.md"),
-        ("xss", "exploit-xss.md", "hypotheses_xss.md", "findings_xss.md"),
+        ("injection", "exploit-injection.md", "hypotheses_injection.md", "findings_injection.md", "findings"),
+        ("xss", "exploit-xss.md", "hypotheses_xss.md", "findings_xss.md", "findings"),
+        ("auth", "exploit-auth.md", "hypotheses_auth.md", "findings_auth.md", "findings_auth"),
+        ("authz", "exploit-authz.md", "hypotheses_authz.md", "findings_authz.md", "findings_authz"),
+        ("ssrf", "exploit-ssrf.md", "hypotheses_ssrf.md", "findings_ssrf.md", "findings_ssrf"),
     ]
 
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="exploit") as pool:
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="exploit") as pool:
         futures = {
             pool.submit(
                 _run_single_exploit,
-                e_type, tmpl, hyp, find,
+                e_type, tmpl, hyp, find, sch,
                 registry, config, agent_runner, stop_event,
             ): e_type
-            for e_type, tmpl, hyp, find in sub_phases
+            for e_type, tmpl, hyp, find, sch in sub_phases
         }
 
         for future in as_completed(futures):
@@ -752,9 +759,15 @@ def run_phase_report(
     phase = PhaseResult(phase_name="report", success=False)
     _check_stop(stop_event)
 
-    # Gather all findings
+    # Gather all findings (5 categories)
     findings_parts = []
-    for name in ["findings_injection.md", "findings_xss.md"]:
+    for name in [
+        "findings_injection.md",
+        "findings_xss.md",
+        "findings_auth.md",
+        "findings_authz.md",
+        "findings_ssrf.md",
+    ]:
         content = read_deliverable(name, config.output_dir)
         if content:
             findings_parts.append(f"# {name}\n\n{content}")
@@ -823,8 +836,14 @@ _REPLAY_FILES = [
     "recon_report.md",
     "hypotheses_injection.md",
     "hypotheses_xss.md",
+    "hypotheses_auth.md",
+    "hypotheses_authz.md",
+    "hypotheses_ssrf.md",
     "findings_injection.md",
     "findings_xss.md",
+    "findings_auth.md",
+    "findings_authz.md",
+    "findings_ssrf.md",
     "pentest_report.md",
 ]
 
@@ -879,12 +898,24 @@ _PHASE_META: dict[str, dict[str, Any]] = {
         "expected_deliverables": ["recon_report.md"],
     },
     "analysis": {
-        "agent_name": "analysis-agent (injection + xss)",
-        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md"],
+        "agent_name": "analysis-agent (injection + xss + auth + authz + ssrf)",
+        "expected_deliverables": [
+            "hypotheses_injection.md",
+            "hypotheses_xss.md",
+            "hypotheses_auth.md",
+            "hypotheses_authz.md",
+            "hypotheses_ssrf.md",
+        ],
     },
     "exploit": {
-        "agent_name": "exploit-agent (injection + xss)",
-        "expected_deliverables": ["findings_injection.md", "findings_xss.md"],
+        "agent_name": "exploit-agent (injection + xss + auth + authz + ssrf)",
+        "expected_deliverables": [
+            "findings_injection.md",
+            "findings_xss.md",
+            "findings_auth.md",
+            "findings_authz.md",
+            "findings_ssrf.md",
+        ],
     },
     "report": {
         "agent_name": "report-agent",

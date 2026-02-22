@@ -64,8 +64,9 @@ def main():
     check("repos/juice-shop cloned", Path("repos/juice-shop").exists())
     check("repos/juice-shop has package.json", Path("repos/juice-shop/package.json").exists())
 
-    nmap_path = shutil.which("nmap")
-    check("nmap on PATH", nmap_path is not None, detail=str(nmap_path))
+    from src.tool_discovery import find_tool
+    nmap_info = find_tool("nmap", skip_version=True)
+    check("nmap on PATH", nmap_info.available, detail=str(nmap_info.path or nmap_info.reason))
 
     curl_path = shutil.which("curl") or shutil.which("curl.exe")
     check("curl on PATH", curl_path is not None, detail=str(curl_path))

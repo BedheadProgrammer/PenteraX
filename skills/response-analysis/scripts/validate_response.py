@@ -196,6 +196,232 @@ def validate_findings(content: str) -> list[str]:
     return errors
 
 
+# ---------------------------------------------------------------------------
+# Category-specific hypothesis validators (Phase E — Validation & Quality)
+# ---------------------------------------------------------------------------
+
+def validate_hypotheses_auth(content: str) -> list[str]:
+    """Validate a hypotheses_auth.md deliverable (Broken Authentication)."""
+    errors = validate_hypotheses(content)
+
+    # Auth-specific: at least one hypothesis should reference auth-related endpoints
+    auth_keywords = [
+        "login", "jwt", "token", "password", "session", "cookie",
+        "authentication", "credential", "brute.?force", "rate.?limit",
+        "security.?question", "reset", "hsts", "alg.*none",
+    ]
+    if "## Hypotheses" in content:
+        hyp_block = content.split("## Hypotheses", 1)[1]
+        found_auth = any(
+            re.search(kw, hyp_block, re.IGNORECASE) for kw in auth_keywords
+        )
+        if not found_auth:
+            errors.append(
+                "Auth hypotheses should reference at least one authentication "
+                "concept (login, JWT, token, password, session, credential, "
+                "brute-force, rate-limit, security-question, reset, HSTS)"
+            )
+    return errors
+
+
+def validate_hypotheses_authz(content: str) -> list[str]:
+    """Validate a hypotheses_authz.md deliverable (Broken Authorization / IDOR)."""
+    errors = validate_hypotheses(content)
+
+    # Authz-specific: at least one hypothesis should reference authorization concepts
+    authz_keywords = [
+        "idor", "authorization", "privilege", "escalation", "access.?control",
+        "basket", "admin", "role", "mass.?assignment", "/api/Users",
+        "/api/Feedbacks", "/rest/basket", "cross.?user",
+    ]
+    if "## Hypotheses" in content:
+        hyp_block = content.split("## Hypotheses", 1)[1]
+        found_authz = any(
+            re.search(kw, hyp_block, re.IGNORECASE) for kw in authz_keywords
+        )
+        if not found_authz:
+            errors.append(
+                "Authorization hypotheses should reference at least one authz "
+                "concept (IDOR, privilege escalation, access control, basket, "
+                "admin role, mass assignment, cross-user access)"
+            )
+    return errors
+
+
+def validate_hypotheses_ssrf(content: str) -> list[str]:
+    """Validate a hypotheses_ssrf.md deliverable (SSRF)."""
+    errors = validate_hypotheses(content)
+
+    # SSRF-specific: hypotheses should reference SSRF-related concepts
+    ssrf_keywords = [
+        "ssrf", "server.?side", "request.?forgery", "url", "localhost",
+        "internal", "profile.?image", "imageUrl", "method.?bypass",
+        "/profile/image/url",
+    ]
+    if "## Hypotheses" in content:
+        hyp_block = content.split("## Hypotheses", 1)[1]
+        found_ssrf = any(
+            re.search(kw, hyp_block, re.IGNORECASE) for kw in ssrf_keywords
+        )
+        if not found_ssrf:
+            errors.append(
+                "SSRF hypotheses should reference at least one SSRF concept "
+                "(SSRF, server-side request forgery, URL, localhost, internal "
+                "resource, profile image URL, method bypass)"
+            )
+
+    # Safety: flag hypotheses that target cloud metadata in production scope
+    if re.search(r"169\.254\.169\.254", content):
+        errors.append(
+            "WARNING: Hypothesis references cloud metadata endpoint "
+            "(169.254.169.254). This is prohibited in production environments "
+            "per safety-rails.md — ensure this is only used in controlled lab "
+            "environments."
+        )
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Category-specific findings validators (Phase E — Validation & Quality)
+# ---------------------------------------------------------------------------
+
+def validate_findings_auth(content: str) -> list[str]:
+    """Validate a findings_auth.md deliverable (Broken Authentication)."""
+    errors = validate_findings(content)
+
+    # Auth findings should reference authentication-specific vulnerability types
+    auth_vuln_types = [
+        "authentication", "credential", "jwt", "token", "password",
+        "session", "brute.?force", "login", "cookie",
+    ]
+    if "## Findings" in content:
+        findings_block = content.split("## Findings", 1)[1]
+        finding_sections = re.split(r"### Finding \d+", findings_block)[1:]
+        for i, section in enumerate(finding_sections, 1):
+            vuln_match = re.search(
+                r"\*\*Vulnerability:\*\*\s*(.+?)(?=\n|\*\*)", section
+            )
+            if vuln_match:
+                vuln_text = vuln_match.group(1)
+                is_auth_related = any(
+                    re.search(kw, vuln_text, re.IGNORECASE)
+                    for kw in auth_vuln_types
+                )
+                if not is_auth_related:
+                    errors.append(
+                        f"Finding {i}: Vulnerability type '{vuln_text.strip()}' "
+                        "does not appear to be authentication-related — "
+                        "auth findings should describe credential, JWT, session, "
+                        "or login-related vulnerabilities"
+                    )
+    return errors
+
+
+def validate_findings_authz(content: str) -> list[str]:
+    """Validate a findings_authz.md deliverable (Broken Authorization / IDOR)."""
+    errors = validate_findings(content)
+
+    # Authz findings should reference authorization-specific vulnerability types
+    authz_vuln_types = [
+        "idor", "authorization", "privilege", "escalation", "access.?control",
+        "direct.?object", "mass.?assignment", "role",
+    ]
+    if "## Findings" in content:
+        findings_block = content.split("## Findings", 1)[1]
+        finding_sections = re.split(r"### Finding \d+", findings_block)[1:]
+        for i, section in enumerate(finding_sections, 1):
+            vuln_match = re.search(
+                r"\*\*Vulnerability:\*\*\s*(.+?)(?=\n|\*\*)", section
+            )
+            if vuln_match:
+                vuln_text = vuln_match.group(1)
+                is_authz_related = any(
+                    re.search(kw, vuln_text, re.IGNORECASE)
+                    for kw in authz_vuln_types
+                )
+                if not is_authz_related:
+                    errors.append(
+                        f"Finding {i}: Vulnerability type '{vuln_text.strip()}' "
+                        "does not appear to be authorization-related — "
+                        "authz findings should describe IDOR, privilege escalation, "
+                        "access control, or role-related vulnerabilities"
+                    )
+
+    # Authz-specific: check that IDOR findings include the resource ID tested
+    if "## Findings" in content:
+        findings_block = content.split("## Findings", 1)[1]
+        finding_sections = re.split(r"### Finding \d+", findings_block)[1:]
+        for i, section in enumerate(finding_sections, 1):
+            if re.search(r"idor", section, re.IGNORECASE):
+                if not re.search(r"/:?\d+|:id|user_?id|basket_?id|BasketId", section, re.IGNORECASE):
+                    errors.append(
+                        f"Finding {i}: IDOR finding should reference the "
+                        "specific resource ID or ID parameter that was accessed"
+                    )
+    return errors
+
+
+def validate_findings_ssrf(content: str) -> list[str]:
+    """Validate a findings_ssrf.md deliverable (SSRF)."""
+    errors = validate_findings(content)
+
+    # SSRF findings should reference SSRF-specific vulnerability types
+    ssrf_vuln_types = [
+        "ssrf", "server.?side", "request.?forgery", "url",
+        "internal", "redirect",
+    ]
+    if "## Findings" in content:
+        findings_block = content.split("## Findings", 1)[1]
+        finding_sections = re.split(r"### Finding \d+", findings_block)[1:]
+        for i, section in enumerate(finding_sections, 1):
+            vuln_match = re.search(
+                r"\*\*Vulnerability:\*\*\s*(.+?)(?=\n|\*\*)", section
+            )
+            if vuln_match:
+                vuln_text = vuln_match.group(1)
+                is_ssrf_related = any(
+                    re.search(kw, vuln_text, re.IGNORECASE)
+                    for kw in ssrf_vuln_types
+                )
+                if not is_ssrf_related:
+                    errors.append(
+                        f"Finding {i}: Vulnerability type '{vuln_text.strip()}' "
+                        "does not appear to be SSRF-related — "
+                        "SSRF findings should describe server-side request forgery, "
+                        "URL injection, or internal resource access vulnerabilities"
+                    )
+
+    # Safety: flag findings that accessed cloud metadata
+    if re.search(r"169\.254\.169\.254", content):
+        errors.append(
+            "SAFETY VIOLATION: Findings reference cloud metadata endpoint "
+            "(169.254.169.254). This is prohibited per safety-rails.md. "
+            "SSRF testing must be scoped to the target Juice Shop only."
+        )
+
+    # SSRF-specific: localhost/127.0.0.1 in proof should reference the target app,
+    # not arbitrary external services
+    if "## Findings" in content:
+        findings_block = content.split("## Findings", 1)[1]
+        proof_blocks = re.findall(
+            r"\*\*Proof:\*\*\s*(.*?)(?=\*\*(?:Vulnerability|Severity|Evidence):\*\*|###\s|\Z)",
+            findings_block, re.DOTALL,
+        )
+        for i, proof in enumerate(proof_blocks, 1):
+            # Localhost in SSRF proofs is expected (it's the SSRF payload target),
+            # but ensure it targets the app port, not arbitrary services
+            non_app_localhost = re.findall(
+                r"https?://(?:localhost|127\.0\.0\.1):(\d+)", proof
+            )
+            for port in non_app_localhost:
+                if int(port) not in (3000, 3001, 80, 443):
+                    errors.append(
+                        f"Finding {i}: SSRF proof targets localhost:{port} — "
+                        "only Juice Shop ports (3000/3001) are in scope"
+                    )
+    return errors
+
+
 def validate_pentest_report(content: str) -> list[str]:
     """Validate a pentest_report.md deliverable."""
     errors = []
@@ -278,6 +504,13 @@ VALIDATORS = {
     "hypotheses": validate_hypotheses,
     "findings": validate_findings,
     "pentest_report": validate_pentest_report,
+    # Category-specific validators (Phase E)
+    "hypotheses_auth": validate_hypotheses_auth,
+    "hypotheses_authz": validate_hypotheses_authz,
+    "hypotheses_ssrf": validate_hypotheses_ssrf,
+    "findings_auth": validate_findings_auth,
+    "findings_authz": validate_findings_authz,
+    "findings_ssrf": validate_findings_ssrf,
 }
 
 

@@ -14,14 +14,15 @@ Synthesise all exploitation findings into a **professional penetration test repo
 
 ## Report Instructions
 
-1. **Aggregate and deduplicate** findings from injection and XSS exploitation phases. If both phases found the same endpoint/vulnerability combination, merge into a single finding.
+1. **Aggregate and deduplicate** findings from all exploitation phases (injection, XSS, authentication, authorization, and SSRF). If multiple phases found the same endpoint/vulnerability combination, merge into a single finding.
 2. **Assign CVSS v3.1 scores** to each finding with full vector strings (e.g., `CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H`).
 3. **Sort findings by severity** (Critical → High → Medium → Low → Informational).
-4. **Assign CWE IDs** — SQL injection = CWE-89, XSS = CWE-79 (use subtypes where appropriate: CWE-79.1 Reflected, CWE-79.2 Stored).
+4. **Assign CWE IDs** — SQL injection = CWE-89, XSS = CWE-79 (use subtypes where appropriate: CWE-79.1 Reflected, CWE-79.2 Stored), Broken Auth = CWE-287, IDOR/Broken Authz = CWE-639, SSRF = CWE-918.
 5. **Write clear, specific recommendations** — not generic advice but concrete remediation steps referencing the actual code/endpoint.
 6. **Include evidence references** — cite screenshot paths, dialog captures, HTTP response excerpts from the findings.
-7. **Handle partial data gracefully** — if only injection OR XSS findings are available, produce a complete report for the available data. Never leave empty sections — state what was tested and what wasn't.
-8. **Include scope limitations** — we only tested SQL injection and XSS; other vulnerability classes were out of scope.
+7. **Handle partial data gracefully** — if only some category findings are available, produce a complete report for the available data. Never leave empty sections — state what was tested and what wasn't.
+8. **Include scope limitations** — note any vulnerability classes that were in scope but yielded no findings, and any classes not tested.
+9. **Group findings by vulnerability type** — organize findings under category headers (Injection, XSS, Broken Authentication, Broken Authorization/IDOR, SSRF) for readability.
 
 ## Required Output Format
 
@@ -32,7 +33,7 @@ Produce a single markdown document with ALL of the following sections:
 
 **Target:** {{TARGET_URL}}
 **Date:** [current date]
-**Scope:** SQL Injection, Cross-Site Scripting (XSS)
+**Scope:** SQL Injection, Cross-Site Scripting (XSS), Broken Authentication, Broken Authorization/IDOR, Server-Side Request Forgery (SSRF)
 **Tool:** PenteraX Agentic Pipeline
 **Classification:** Confidential
 
@@ -41,7 +42,7 @@ Produce a single markdown document with ALL of the following sections:
 ## Executive Summary
 
 [2–3 concise paragraphs summarising:
-- What was tested (Juice Shop at {{TARGET_URL}}, scope: SQLi + XSS)
+- What was tested (Juice Shop at {{TARGET_URL}}, scope: SQLi + XSS + Auth + Authz + SSRF)
 - Total vulnerabilities found, broken down by severity (Critical: N, High: N, Medium: N, Low: N)
 - The most impactful findings in business terms (e.g., "complete database compromise", "authentication bypass")
 - Overall risk rating (Critical/High/Medium/Low) with justification
@@ -60,14 +61,18 @@ Produce a single markdown document with ALL of the following sections:
 ## Scope & Methodology
 
 ### In Scope
-- SQL Injection (CWE-89) — including union-based, boolean-based, and authentication bypass
-- Cross-Site Scripting (CWE-79) — including reflected, stored, and DOM-based
+- SQL Injection (CWE-89) — including union-based, boolean-based, NoSQL, XXE, SSTI, and authentication bypass
+- Cross-Site Scripting (CWE-79) — including reflected, stored, DOM-based, and JSONP callback injection
+- Broken Authentication (CWE-287) — including brute force, JWT forgery, credential stuffing, token replay, and password reset abuse
+- Broken Authorization / IDOR (CWE-639) — including horizontal privilege escalation, admin role injection, cross-user data access
+- Server-Side Request Forgery (CWE-918) — including internal service access, method bypass, and key exfiltration
 
 ### Out of Scope
-- Other OWASP Top 10 categories (SSRF, IDOR, CSRF, etc.)
 - Infrastructure-level vulnerabilities
 - Denial of Service testing
 - Social engineering
+- CSRF (except as it relates to authentication bypass)
+- Insecure Deserialization (except as part of injection testing)
 
 ### Methodology
 1. **Reconnaissance:** Automated source code analysis, endpoint enumeration, technology stack identification, and network scanning
@@ -81,9 +86,19 @@ Produce a single markdown document with ALL of the following sections:
 - **curl** — Manual HTTP request testing for injection payloads
 - **nmap** — Network service enumeration
 
+## Summary by Vulnerability Type
+
+| Category | Findings | Highest Severity | Key Impact |
+|----------|----------|-----------------|------------|
+| SQL Injection | N | CRITICAL/HIGH | [e.g., full database compromise] |
+| Cross-Site Scripting | N | HIGH/MEDIUM | [e.g., session hijacking] |
+| Broken Authentication | N | CRITICAL/HIGH | [e.g., admin account takeover] |
+| Broken Authorization / IDOR | N | HIGH/MEDIUM | [e.g., cross-user data access] |
+| SSRF | N | HIGH/MEDIUM | [e.g., internal service access] |
+
 ## Findings
 
-[For EACH finding, use this structured format, sorted by severity:]
+[For EACH finding, use this structured format, sorted by severity within each category:]
 
 ### Finding N: [Descriptive Title]
 | Field | Value |
@@ -144,29 +159,23 @@ NOT generic advice like "sanitize input"]
 
 ## Scope Limitations
 
-This assessment was limited to **SQL Injection and Cross-Site Scripting** only. The following vulnerability classes were NOT tested and may exist:
-- Server-Side Request Forgery (SSRF)
-- Insecure Direct Object References (IDOR)
-- Cross-Site Request Forgery (CSRF)
-- Broken Access Control
-- Security Misconfiguration
-- Insecure Deserialization
-- XML External Entity (XXE)
+This assessment covered **SQL Injection, Cross-Site Scripting, Broken Authentication, Broken Authorization/IDOR, and Server-Side Request Forgery**. The following vulnerability classes were NOT tested and may exist:
+- Cross-Site Request Forgery (CSRF) — except where related to authentication bypass
+- Security Misconfiguration (beyond what was observed during auth testing)
+- Insecure Deserialization (beyond injection-related tests)
+- Using Components with Known Vulnerabilities (identified but not fully exploited)
+- Insufficient Logging & Monitoring
 
-A comprehensive assessment covering all OWASP Top 10 categories is recommended.
+A comprehensive assessment covering all remaining OWASP Top 10 categories is recommended.
 ```
 
 ## Handling Partial Data
 
-If ONLY injection findings are available:
-- Include all injection findings as normal
-- In the Executive Summary, note: "XSS testing was conducted but did not yield confirmed findings" (or whatever is appropriate)
-- In the Severity Summary, show the actual counts
-- In the Scope section, note that both injection and XSS were in scope
-
-If ONLY XSS findings are available:
-- Include all XSS findings as normal
-- Note the injection testing status similarly
+If only SOME category findings are available (e.g., injection and XSS but not auth/authz/SSRF):
+- Include all available findings as normal, grouped by category
+- In the Executive Summary, note which categories were tested but yielded no confirmed findings
+- In the Severity Summary and Summary by Vulnerability Type tables, show actual counts (0 is valid)
+- In the Scope section, note that all 5 categories were in scope
 
 If NO findings are available:
 - Produce a report that honestly states no exploitable vulnerabilities were confirmed

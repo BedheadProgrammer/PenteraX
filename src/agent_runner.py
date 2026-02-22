@@ -114,8 +114,8 @@ class AgentRunner:
     def __init__(
         self,
         api_key: str,
-        max_budget_usd: float = 10.0,
-        max_agent_budget_usd: float = 4.0,
+        max_budget_usd: float = 20.0,
+        max_agent_budget_usd: float = 3.50,
         stop_event: threading.Event | None = None,
         event_queue: queue.Queue | None = None,
         tools: list[dict[str, Any]] | None = None,

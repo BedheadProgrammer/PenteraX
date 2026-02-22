@@ -90,7 +90,10 @@ def validate_deliverable(
     Args:
         registry: The loaded SkillRegistry.
         deliverable_path: Path to the deliverable markdown file.
-        schema_type: One of "recon_report", "hypotheses", "findings", "pentest_report".
+        schema_type: One of "recon_report", "hypotheses", "findings",
+            "pentest_report", "hypotheses_auth", "hypotheses_authz",
+            "hypotheses_ssrf", "findings_auth", "findings_authz",
+            "findings_ssrf".
 
     Returns:
         SkillResult whose ``output`` is a dict with keys:

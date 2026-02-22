@@ -33,6 +33,20 @@ OWASP Juice Shop is a deliberately insecure web application used for security tr
 | `/rest/saveLoginIp` | GET | Logs user IP |
 | `/rest/deluxe-membership` | GET/POST | Deluxe membership upgrade |
 | `/rest/memories` | GET/POST | Photo memories (file upload) |
+| `/rest/products/reviews` | GET/PATCH | Product reviews — **NoSQL injection sink** (`PATCH` accepts MongoDB operators) |
+| `/rest/user/security-question` | GET | Security question lookup by `?email=` — **account enumeration** |
+
+### Profile API
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/profile` | GET | User profile page |
+| `/profile/image/url` | POST | Profile image upload via URL — **SSRF sink** (server-side fetch) |
+
+### Static / FTP
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/ftp/:file` | GET | FTP file download — **path traversal + null-byte bypass** |
+| `/encryptionkeys/jwt.pub` | GET | Exposed JWT public key — **enables JWT forgery** |
 
 ### CRUD API (`/api/*`)
 | Endpoint | Method | Description |
@@ -65,3 +79,12 @@ OWASP Juice Shop is a deliberately insecure web application used for security tr
 5. **JWT `none` algorithm:** Older Juice Shop versions accept JWT tokens with `alg: none`.
 6. **File upload path traversal:** Complaint and memory upload endpoints may be vulnerable to path traversal.
 7. **Admin section:** Accessible at `/#/administration` when logged in as admin.
+8. **NoSQL injection on product reviews:** `PATCH /rest/products/reviews` accepts MongoDB-style operators like `{"id":{"$ne":-1}}`.
+9. **SSRF via profile image URL:** `POST /profile/image/url` fetches user-supplied URLs server-side; HTTP method bypass (PUT) may bypass restrictions.
+10. **Deluxe membership payment bypass:** `POST /rest/deluxe-membership` may allow upgrade without valid payment via parameter manipulation.
+11. **Unauthenticated memory access:** `GET /rest/memories` may be accessible without authentication.
+12. **JSONP callback XSS:** `GET /rest/user/whoami?callback=` reflects the callback parameter value, enabling script injection.
+13. **Cross-user basket checkout:** `POST /rest/basket/:id/checkout` may allow checking out another user's basket via IDOR.
+14. **Account enumeration:** `GET /rest/user/security-question?email=` returns different responses for valid vs invalid emails.
+15. **JWT key leakage:** `GET /encryptionkeys/jwt.pub` exposes the public key used for JWT signing, enabling token forgery.
+16. **XXE/SSTI on B2B orders:** `POST /b2b/v2/orders` accepts XML input (XXE) and uses Pug/Jade templates (SSTI).

@@ -36,6 +36,27 @@ This is a **controlled testing environment**. No responsible disclosure process 
 - If you discover an issue in the testing infrastructure itself (e.g., AWS misconfig), note it in the report under Scope Limitations
 - Do not attempt to exploit infrastructure-level issues
 
+## SSRF Scope Constraints
+
+SSRF payloads are permitted **only** when targeting the Juice Shop application itself:
+
+### ALLOWED
+
+- `http://localhost:3000/...` or `http://127.0.0.1:3000/...` — accessing the Juice Shop's own endpoints via SSRF (this is the core SSRF challenge)
+- `http://localhost:3001/...` or `http://127.0.0.1:3001/...` — accessing Juice Shop internal services
+- Internal paths such as `/encryptionkeys/jwt.pub`, `/rest/admin/application-configuration`, `/api/Users`, `/ftp/` — these are legitimate SSRF targets within the application
+
+### PROHIBITED
+
+- **Cloud metadata endpoints:** `http://169.254.169.254/...` (AWS instance metadata) — **NEVER** attempt this in production or cloud-hosted environments. Only permitted in isolated local lab environments where no cloud metadata service exists.
+- **Non-application ports:** Do not use SSRF to scan or access services on ports other than 3000/3001/80/443 on localhost
+- **External callback servers:** Do not use SSRF to make the target connect to attacker-controlled infrastructure
+- **Internal network scanning:** Do not use SSRF to enumerate or probe other hosts on the internal network (10.x.x.x, 172.16.x.x, 192.168.x.x ranges beyond the target itself)
+
+### Rationale
+
+SSRF testing is scoped to demonstrate the vulnerability's impact on the Juice Shop itself — accessing internal data, reading encryption keys, or reaching admin endpoints. The goal is **proof of exploitability**, not infrastructure compromise.
+
 ## Attack Intensity
 
 - Keep scan intensity reasonable (`-T3` or `-T4` for nmap, not `-T5`)

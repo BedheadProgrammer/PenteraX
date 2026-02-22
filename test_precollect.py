@@ -127,11 +127,18 @@ def main() -> None:
     section("3. NMAP SCAN PRE-COLLECTION")
 
     import shutil
-    nmap_available = shutil.which("nmap") is not None
-    check("nmap on PATH", nmap_available, detail=str(shutil.which("nmap")))
+    from src.tool_discovery import find_tool
+    nmap_info = find_tool("nmap", skip_version=True)
+    nmap_available = nmap_info.available
+    check("nmap on PATH", nmap_available, detail=str(nmap_info.path or nmap_info.reason))
 
     # Test graceful degradation when nmap is not available
-    with patch("shutil.which", return_value=None):
+    # Must mock both shutil.which AND find_tool since collect_nmap_scan
+    # tries find_tool first, then falls back to shutil.which.
+    from src.tool_discovery import ToolInfo
+    _fake_nmap_missing = ToolInfo(name="nmap", available=False, reason="mocked away")
+    with patch("shutil.which", return_value=None), \
+         patch("src.tool_discovery.find_tool", return_value=_fake_nmap_missing):
         nmap_result = collect_nmap_scan("http://localhost:3000")
         check("Graceful degradation: no nmap → descriptive fallback",
               "not installed" in nmap_result.lower() or "unavailable" in nmap_result.lower(),
