@@ -19,7 +19,65 @@ You have access to skill tools — use them to run nmap scans and look up CVEs. 
 
 ## Step-by-Step Instructions
 
-### Step 1 — Network Scan
+### Step 1 — Source Code Analysis (CRITICAL — do this FIRST)
+
+Read the application source code at `{{REPO_PATH}}`. This gives you ground-truth knowledge that network scanning cannot provide. Perform ALL FIVE tasks below — do NOT skip any.
+
+#### Task 1.1 — Route Mapping
+Find every HTTP endpoint, URL pattern, and handler function:
+```bash
+# Express route registrations
+grep -rn "app\.\(get\|post\|put\|delete\|patch\|use\)" {{REPO_PATH}}/routes/ {{REPO_PATH}}/server.ts
+grep -rn "router\.\(get\|post\|put\|delete\|patch\)" {{REPO_PATH}}/routes/
+# Angular client-side routes
+grep -rn "path:" {{REPO_PATH}}/frontend/src/app/app-routing.module.ts 2>/dev/null || true
+grep -rn "RouterModule\|Routes" {{REPO_PATH}}/frontend/src/ 2>/dev/null | head -30
+```
+Record: route path, HTTP method, handler file, handler function name.
+
+#### Task 1.2 — Sink Identification
+Find dangerous function calls that could lead to vulnerabilities:
+```bash
+# SQL injection sinks
+grep -rn "sequelize\.query\|\.query(" {{REPO_PATH}}/routes/ {{REPO_PATH}}/models/
+grep -rn "raw:\s*true\|replacements" {{REPO_PATH}}/routes/
+# XSS sinks
+grep -rn "innerHTML\|outerHTML\|document\.write\|eval(" {{REPO_PATH}}/frontend/src/
+grep -rn "dangerouslySetInnerHTML\|v-html\|\\[innerHTML\\]" {{REPO_PATH}}/frontend/src/
+# Command injection sinks
+grep -rn "child_process\|exec(\|spawn(\|execFile(" {{REPO_PATH}}/routes/ {{REPO_PATH}}/lib/
+# Path traversal sinks
+grep -rn "path\.join\|path\.resolve\|readFile\|createReadStream" {{REPO_PATH}}/routes/
+```
+For each sink: record the file, line number, function name, and which user input reaches it.
+
+#### Task 1.3 — Auth Mechanism Analysis
+```bash
+# JWT and auth middleware
+grep -rn "jwt\|jsonwebtoken\|verify\|sign(" {{REPO_PATH}}/routes/ {{REPO_PATH}}/lib/
+grep -rn "middleware\|authorize\|authenticate\|isAuthed" {{REPO_PATH}}/
+cat {{REPO_PATH}}/routes/verify.ts 2>/dev/null || true
+```
+Document: token format, signing algorithm, which routes enforce auth, any auth bypass patterns.
+
+#### Task 1.4 — Input Entry Point Mapping
+```bash
+# Request parameter access
+grep -rn "req\.query\|req\.params\|req\.body\|req\.headers\|req\.cookies" {{REPO_PATH}}/routes/
+# Form/body parsing configuration
+grep -rn "bodyParser\|express\.json\|express\.urlencoded\|multer\|busboy" {{REPO_PATH}}/server.ts {{REPO_PATH}}/routes/
+```
+For each entry point: record parameter name, source (query/body/header/cookie), and which handler consumes it.
+
+#### Task 1.5 — Technology Stack Identification
+```bash
+cat {{REPO_PATH}}/package.json | head -60
+# Look for specific framework versions
+grep -n "express\|angular\|sequelize\|sqlite\|jsonwebtoken\|sanitize-html" {{REPO_PATH}}/package.json
+```
+Record: framework, ORM, template engine, auth library — with version numbers.
+
+### Step 2 — Network Scan
 
 Run nmap against the **IP/hostname extracted from {{TARGET_URL}}** (NOT localhost):
 
@@ -37,9 +95,9 @@ nmap -sV -p 80,443,8080,8443,3000,5000,8000,9000 \
 
 After the scan completes, use the `network_recon_parse_nmap` tool to parse the XML into structured JSON.
 
-### Step 2 — HTTP Endpoint Discovery
+### Step 3 — Live HTTP Endpoint Discovery
 
-Enumerate the Juice Shop API surface by sending HTTP requests to {{TARGET_URL}}:
+Verify and extend the endpoints found in source code by sending live HTTP requests to {{TARGET_URL}}:
 
 1. Fetch the main page and extract Angular routes from the JavaScript bundle
 2. Probe known Juice Shop API endpoints:
@@ -56,7 +114,7 @@ Enumerate the Juice Shop API surface by sending HTTP requests to {{TARGET_URL}}:
    - `GET {{TARGET_URL}}/b2b/v2/orders` — B2B API
 3. Record HTTP method, response status, content-type, and notable response patterns
 
-### Step 3 — Vulnerability Lookup
+### Step 4 — Vulnerability Lookup
 
 Use the `vulnerability_lookup_cve` tool to query CVEs for each identified technology and version:
 
@@ -66,14 +124,19 @@ Use the `vulnerability_lookup_cve` tool to query CVEs for each identified techno
 - sequelize (inferred from SQL error messages or known Juice Shop stack)
 - sanitize-html (if detected)
 
-### Step 4 — Identify Sinks
+### Step 5 — Consolidate Sinks
 
-Based on the endpoint enumeration and known Juice Shop architecture, identify:
-- **SQL injection sinks:** Endpoints that accept search/filter parameters (`q=`, `id=`)
-- **XSS sinks:** Endpoints that reflect user input (search results, user profiles, feedback)
-- **Authentication sinks:** JWT handling, login, password reset
-- **Path traversal sinks:** File download/upload endpoints
-- **Command injection sinks:** Any endpoints that might invoke OS commands
+Merge the sinks found in source code (Step 1.2) with live endpoint behaviour (Step 3). For each sink, confirm:
+- The code path is reachable from an HTTP endpoint
+- The user-controlled input actually flows into the dangerous function
+- No sanitization or parameterization is applied between entry point and sink
+
+Categorize consolidated sinks:
+- **SQL injection sinks:** Endpoints with raw Sequelize queries receiving user input (`q=`, login `email`)
+- **XSS sinks:** Endpoints reflecting or storing user input rendered without escaping
+- **Authentication sinks:** JWT handling, login, password reset — especially lacking rate limits
+- **Path traversal sinks:** File download/upload endpoints using `path.join` with user input
+- **Command injection sinks:** Any endpoints invoking OS commands with user-controlled args
 
 ## Network Recon Skill Context
 
@@ -92,25 +155,31 @@ Produce a single markdown document with ALL of the following sections. Each sect
 
 | Component | Product | Version | Source |
 |-----------|---------|---------|--------|
-| Backend   | Express | X.Y.Z   | nmap / HTTP headers |
-| Frontend  | Angular | X.Y.Z   | JS bundle analysis  |
+| Backend   | Express | X.Y.Z   | package.json + nmap |
+| Frontend  | Angular | X.Y.Z   | package.json + JS bundle |
+| Database  | SQLite  | N/A     | package.json (sequelize) |
+| Auth      | jsonwebtoken | X.Y.Z | package.json |
 | ...       | ...     | ...     | ...                  |
 
 ## Endpoints
 
-| Route | Method | Parameters | Auth Required |
-|-------|--------|------------|---------------|
-| /rest/products/search | GET | q | No |
-| ...   | ...    | ...        | ...           |
+| Route | Method | Parameters | Auth Required | Source File | Handler |
+|-------|--------|------------|---------------|-------------|---------|
+| /rest/products/search | GET | q | No | routes/search.ts | searchProducts() |
+| ...   | ...    | ...        | ...           | ...         | ...     |
 
 ## Identified Sinks
 
 ### SQL Injection Sinks
-- **Endpoint:** /rest/products/search — `q` parameter concatenated into SQL query
+- **Endpoint:** /rest/products/search — `q` parameter concatenated into raw Sequelize query
+  - **Source:** routes/search.ts:NN — `models.sequelize.query("SELECT ... '" + criteria + "'")`
+  - **Input flow:** req.query.q → criteria variable → SQL string concatenation
 - ...
 
 ### XSS Sinks
-- **Endpoint:** /api/Products — product name reflected in search results
+- **Endpoint:** /api/Feedbacks — comment field rendered in admin panel without escaping
+  - **Source:** routes/feedback.ts → frontend admin component
+  - **Input flow:** req.body.comment → database → admin panel DOM
 - ...
 
 ### Other Sinks
