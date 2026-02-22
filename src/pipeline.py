@@ -535,13 +535,13 @@ def run_phase_analysis(
     agent_runner: Callable[..., str] | None = None,
     stop_event: threading.Event | None = None,
 ) -> PhaseResult:
-    """Phase 1: Analysis (injection + XSS + auth).
+    """Phase 1: Analysis (injection + XSS + auth + authz + ssrf).
 
     - Reads recon_report.md
     - Runs vulnerability lookups to enrich with CVE data
-    - Produces hypotheses_injection.md, hypotheses_xss.md, and hypotheses_auth.md
+    - Produces hypotheses_injection.md, hypotheses_xss.md, hypotheses_auth.md, hypotheses_authz.md, and hypotheses_ssrf.md
 
-    Injection, XSS, and auth analyses run **in parallel** via ThreadPoolExecutor
+    Injection, XSS, auth, authz, and ssrf analyses run **in parallel** via ThreadPoolExecutor
     (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
     file so there is no file contention (Race condition #5).
     """
@@ -573,14 +573,16 @@ def run_phase_analysis(
         "TARGET_URL": config.target_url,
     }
 
-    # Run injection + XSS + auth analysis in parallel
+    # Run injection + XSS + auth + authz + ssrf analysis in parallel
     sub_phases = [
         ("injection", "analysis-injection.md", "hypotheses_injection.md", "hypotheses"),
         ("xss", "analysis-xss.md", "hypotheses_xss.md", "hypotheses"),
         ("auth", "analysis-auth.md", "hypotheses_auth.md", "hypotheses"),
+        ("authz", "analysis-authz.md", "hypotheses_authz.md", "hypotheses"),
+        ("ssrf", "analysis-ssrf.md", "hypotheses_ssrf.md", "hypotheses"),
     ]
 
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="analysis") as pool:
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="analysis") as pool:
         futures = {
             pool.submit(
                 _run_single_analysis,
@@ -692,9 +694,9 @@ def run_phase_exploit(
     """Phase 2: Exploitation.
 
     - Reads hypothesis files
-    - Produces findings_injection.md, findings_xss.md, and findings_auth.md
+    - Produces findings_injection.md, findings_xss.md, findings_auth.md, findings_authz.md, and findings_ssrf.md
 
-    Injection, XSS, and auth exploits run **in parallel** via ThreadPoolExecutor
+    Injection, XSS, auth, authz, and ssrf exploits run **in parallel** via ThreadPoolExecutor
     (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
     file so there is no file contention (Race condition #5).
     """
@@ -706,9 +708,11 @@ def run_phase_exploit(
         ("injection", "exploit-injection.md", "hypotheses_injection.md", "findings_injection.md"),
         ("xss", "exploit-xss.md", "hypotheses_xss.md", "findings_xss.md"),
         ("auth", "exploit-auth.md", "hypotheses_auth.md", "findings_auth.md"),
+        ("authz", "exploit-authz.md", "hypotheses_authz.md", "findings_authz.md"),
+        ("ssrf", "exploit-ssrf.md", "hypotheses_ssrf.md", "findings_ssrf.md"),
     ]
 
-    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="exploit") as pool:
+    with ThreadPoolExecutor(max_workers=5, thread_name_prefix="exploit") as pool:
         futures = {
             pool.submit(
                 _run_single_exploit,
@@ -756,7 +760,7 @@ def run_phase_report(
 
     # Gather all findings
     findings_parts = []
-    for name in ["findings_injection.md", "findings_xss.md", "findings_auth.md"]:
+    for name in ["findings_injection.md", "findings_xss.md", "findings_auth.md", "findings_authz.md", "findings_ssrf.md"]:
         content = read_deliverable(name, config.output_dir)
         if content:
             findings_parts.append(f"# {name}\n\n{content}")
@@ -826,9 +830,13 @@ _REPLAY_FILES = [
     "hypotheses_injection.md",
     "hypotheses_xss.md",
     "hypotheses_auth.md",
+    "hypotheses_authz.md",
+    "hypotheses_ssrf.md",
     "findings_injection.md",
     "findings_xss.md",
     "findings_auth.md",
+    "findings_authz.md",
+    "findings_ssrf.md",
     "pentest_report.md",
 ]
 
@@ -883,12 +891,12 @@ _PHASE_META: dict[str, dict[str, Any]] = {
         "expected_deliverables": ["recon_report.md"],
     },
     "analysis": {
-        "agent_name": "analysis-agent (injection + xss + auth)",
-        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md", "hypotheses_auth.md"],
+        "agent_name": "analysis-agent (injection + xss + auth + authz + ssrf)",
+        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md", "hypotheses_auth.md", "hypotheses_authz.md", "hypotheses_ssrf.md"],
     },
     "exploit": {
-        "agent_name": "exploit-agent (injection + xss + auth)",
-        "expected_deliverables": ["findings_injection.md", "findings_xss.md", "findings_auth.md"],
+        "agent_name": "exploit-agent (injection + xss + auth + authz + ssrf)",
+        "expected_deliverables": ["findings_injection.md", "findings_xss.md", "findings_auth.md", "findings_authz.md", "findings_ssrf.md"],
     },
     "report": {
         "agent_name": "report-agent",

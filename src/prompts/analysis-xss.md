@@ -72,6 +72,10 @@ Your output MUST include hypotheses for ALL of the following (at minimum):
 1. **DOM XSS via search** — `GET /#/search?q=<iframe src="javascript:alert(xss)">` — proven by Playwright dialog capture
 2. **Stored XSS via feedback** — `POST /api/Feedbacks` with `comment` containing XSS payload — proven by navigating to admin page
 3. **Stored XSS via user registration** — `POST /api/Users` with email/username containing XSS — proven by API response showing unescaped payload
+4. **JSONP callback XSS** — `GET /rest/user/whoami?callback=alert(document.cookie)//` — JSONP endpoint reflects callback parameter without sanitisation
+5. **Server-side XSS protection bypass** — `POST /api/Feedbacks` with `<img src="javascript:alert('xss')">` or `<<b>script>alert(1)<</b>/script>` — bypasses server-side sanitise-html filter
+6. **X-Header XSS** — Inject XSS payload via `X-Forwarded-For` or `True-Client-IP` HTTP header that gets reflected in `/rest/saveLoginIp` or admin panel
+7. **CSP bypass** — `<base>` tag injection or `data:` URI to bypass Content Security Policy if present
 
 ## Required Output
 

