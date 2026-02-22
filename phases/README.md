@@ -39,9 +39,9 @@ Phase 2: Core Infrastructure Build
                     ── GATE 2 ──
                          │
 Phase 3: Pipeline Integration & First E2E
-  ├── [E1] pipeline.ts, cli.ts, wiring agents ─────────────────(CRITICAL PATH)
-  ├── [E2] Test recon agent, iterate recon.md, write exploit-injection.md
-  └── [E3] Test XSS analysis agent, iterate prompts
+  ├── [E1] A1: pipeline.ts │ A2: cli.ts + E2E test ────────────(CRITICAL PATH)
+  ├── [E2] B1: Recon agent testing │ B2: Injection agent testing
+  └── [E3] C1: XSS agent testing │ C2: Report agent testing
                          │
                     ── GATE 3 ──
                          │

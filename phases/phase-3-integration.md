@@ -21,111 +21,102 @@
 
 ## Work Streams
 
-### Stream A — Pipeline & CLI [E1: Infrastructure] ⚠️ CRITICAL PATH
+### Stream A1 — Pipeline Orchestrator [E1: Infrastructure] ⚠️ CRITICAL PATH
 
-> **Files created/modified:** `src/pipeline.ts`, `src/cli.ts`
+> **Files created/modified:** `src/pipeline.ts`
 >
 > **Depends on:** Phase 2 Stream A (`runAgent()` works)
 
-- [ ] Build `src/pipeline.ts` — sequential orchestrator:
-  - [ ] Implement `runPipeline(config: PipelineConfig)` function
-  - [ ] **Phase 0 — Recon:**
-    - [ ] Load `recon.md` prompt with `{{TARGET_URL}}` and `{{REPO_PATH}}`
-    - [ ] Call `runAgent()` with recon config
-    - [ ] Verify `deliverables/recon_report.md` exists after completion
-  - [ ] **Phase 1 — Analysis:**
-    - [ ] Read `recon_report.md` contents
-    - [ ] Load `analysis-injection.md` with `{{RECON_DATA}}`
-    - [ ] Load `analysis-xss.md` with `{{RECON_DATA}}`
-    - [ ] Run both analysis agents (sequential for now; `Promise.all` is Phase 4)
-    - [ ] Verify hypothesis files exist
-  - [ ] **Phase 2 — Exploitation:**
-    - [ ] Read hypothesis files
-    - [ ] Load `exploit-injection.md` with `{{HYPOTHESES}}`
-    - [ ] Load `exploit-xss.md` with `{{HYPOTHESES}}`
-    - [ ] Run both exploit agents (sequential)
-    - [ ] Verify findings files exist
-  - [ ] **Phase 3 — Report:**
-    - [ ] Read all findings files
-    - [ ] Load `report.md` with `{{FINDINGS}}`
-    - [ ] Run report agent
-    - [ ] Verify `pentest_report.md` exists
-  - [ ] Add `try/catch` at each phase level — if one phase fails, continue with available data
-  - [ ] Add console progress output: phase name, agent name, start/end timestamps
-- [ ] Build `src/cli.ts` — entry point:
-  - [ ] Parse `--url` argument (target URL, required)
-  - [ ] Parse `--repo` argument (source code path, required)
-  - [ ] Parse `--verbose` flag (optional, enables detailed logging)
-  - [ ] Validate arguments
-  - [ ] Call `runPipeline()` with parsed config
-  - [ ] Print summary on completion (time elapsed, deliverables generated, cost)
-- [ ] **End-to-end test:** Run full pipeline against Juice Shop
+- [ ] Implement `runPipeline(config: PipelineConfig)` — sequential orchestrator calling `runAgent()` for each phase:
+  1. Recon → `recon.md` with `{{TARGET_URL}}`, `{{REPO_PATH}}`
+  2. Analysis → `analysis-injection.md` and `analysis-xss.md` with `{{RECON_DATA}}` (sequential; `Promise.all` is Phase 4)
+  3. Exploit → `exploit-injection.md` and `exploit-xss.md` with `{{HYPOTHESES}}`
+  4. Report → `report.md` with `{{FINDINGS}}`
+- [ ] Add `try/catch` at each phase — if one fails, continue with available data
+- [ ] Verify each phase's deliverable exists before advancing
+- [ ] Add console progress: phase name, agent name, start/end timestamps
+
+### Stream A2 — CLI & End-to-End Test [E1: Infrastructure]
+
+> **Files created/modified:** `src/cli.ts`
+>
+> **Depends on:** Stream A1 (`runPipeline()` available)
+
+- [ ] Build `src/cli.ts` — parse `--url` (required), `--repo` (required), `--verbose` (optional)
+- [ ] Validate arguments, call `runPipeline()`, print summary (time, deliverables, cost)
+- [ ] **End-to-end test:** Run `npx ts-node src/cli.ts --url=http://54.146.141.88:3000 --repo=./repos/juice-shop`
   - [ ] Verify all deliverable files are created
-  - [ ] Check recon_report.md actually contains source-code-derived endpoint data
+  - [ ] Check `recon_report.md` contains source-code-derived endpoints
   - [ ] Check at least one findings file has a real vulnerability
 
-### Stream B — Recon & Injection Agent Testing [E2: Injection]
+### Stream B1 — Recon Agent Testing [E2: Injection]
 
-> **Files modified:** `src/prompts/recon.md`, `src/prompts/analysis-injection.md`, `src/prompts/exploit-injection.md`
+> **Files modified:** `src/prompts/recon.md`
 >
-> **Depends on:** Phase 2 Stream A (`runAgent()` works), Phase 2 Stream B (prompts drafted)
+> **Depends on:** Phase 2 Streams A + B
 
-- [ ] Test recon agent with E1's `runAgent()`:
-  - [ ] Run recon agent standalone against Juice Shop
-  - [ ] Verify `recon_report.md` is generated
-  - [ ] Check that report contains source-code-derived data (not just nmap output)
-  - [ ] Verify endpoint table has actual routes from Juice Shop source
-- [ ] Iterate `recon.md` prompt until output quality is sufficient:
-  - [ ] Agent reads source files (not just runs network tools)
+- [ ] Run recon agent standalone against Juice Shop via `runAgent()`
+- [ ] Verify `recon_report.md` contains source-code-derived data (not just nmap output)
+- [ ] Iterate `recon.md` until:
+  - [ ] Agent reads source files (not just network tools)
   - [ ] Endpoint table is structured and parseable
   - [ ] Sinks are identified with source file references
-- [ ] Test injection-analysis agent:
-  - [ ] Feed recon_report.md output to analysis agent
-  - [ ] Verify hypotheses are generated with specific endpoints and payloads
-- [ ] Test injection-exploit agent:
-  - [ ] Feed hypotheses to exploit agent
-  - [ ] Target: Juice Shop's `/rest/products/search?q=` endpoint for SQL injection
-  - [ ] Verify agent produces evidence (HTTP response with extracted data)
+
+### Stream B2 — Injection Agent Testing [E2: Injection]
+
+> **Files modified:** `src/prompts/analysis-injection.md`, `src/prompts/exploit-injection.md`
+>
+> **Depends on:** Stream B1 (`recon_report.md` available)
+
+- [ ] Test injection-analysis: feed `recon_report.md` → verify hypotheses with specific endpoints and payloads
+- [ ] Test injection-exploit: feed hypotheses → target `/rest/products/search?q=` for SQL injection
+- [ ] Verify agent produces evidence (HTTP response with extracted data)
 - [ ] Iterate injection prompts until at least one SQL injection is proven
 
-### Stream C — XSS & Report Agent Testing [E3: XSS + Report]
+### Stream C1 — XSS Agent Testing [E3: XSS]
 
-> **Files modified:** `src/prompts/analysis-xss.md`, `src/prompts/exploit-xss.md`, `src/prompts/report.md`
+> **Files modified:** `src/prompts/analysis-xss.md`, `src/prompts/exploit-xss.md`
 >
-> **Depends on:** Phase 2 Stream A (`runAgent()` works), Phase 2 Stream C (prompts drafted)
+> **Depends on:** Phase 2 Streams A + C, Stream B1 (`recon_report.md` available)
 
-- [ ] Test XSS-analysis agent:
-  - [ ] Feed recon_report.md output to XSS analysis agent
-  - [ ] Verify hypotheses identify DOM XSS in search, reflected/stored XSS surfaces
-- [ ] Test XSS-exploit agent:
-  - [ ] Feed hypotheses to XSS exploit agent
-  - [ ] Verify Playwright is used to inject payloads
-  - [ ] Verify proof captured (dialog events or DOM changes)
-- [ ] Test report agent:
-  - [ ] First test with mock findings data (created in Phase 2)
-  - [ ] Then test with real agent output once available
-  - [ ] Verify report is professional and contains all required sections
+- [ ] Test XSS-analysis: feed `recon_report.md` → verify hypotheses identify DOM XSS in search, reflected/stored XSS surfaces
+- [ ] Test XSS-exploit: feed hypotheses → verify Playwright injects payloads and captures proof (dialog events or DOM changes)
 - [ ] Iterate XSS prompts until at least one XSS is triggered via Playwright
+
+### Stream C2 — Report Agent Testing [E3: Report]
+
+> **Files modified:** `src/prompts/report.md`
+>
+> **Depends on:** Streams B2 + C1 (findings files available)
+
+- [ ] Test report agent first with mock findings data (from Phase 2), then with real agent output
+- [ ] Verify `pentest_report.md` is professional and contains all required sections
+- [ ] Iterate `report.md` until output quality is sufficient
 
 ---
 
 ## Dependencies Between Streams
 
 ```
-Stream A (pipeline.ts, cli.ts) ◄── depends on Phase 2 Stream A (runAgent works)
-Stream B (test + iterate recon/injection) ◄── depends on Phase 2 Streams A + B
-Stream C (test + iterate XSS/report) ◄── depends on Phase 2 Streams A + C
+Stream A1 (pipeline.ts) ◄── Phase 2 Stream A (runAgent works)
+Stream A2 (cli.ts + E2E) ◄── Stream A1
+Stream B1 (recon testing) ◄── Phase 2 Streams A + B
+Stream B2 (injection testing) ◄── Stream B1
+Stream C1 (XSS testing) ◄── Phase 2 Streams A + C, Stream B1
+Stream C2 (report testing) ◄── Streams B2 + C1
 
-Stream B and Stream C can run in PARALLEL once runAgent() is available.
-Stream A must be completed for the gate criteria (full E2E run).
+Parallel groups:
+  - A1, B1 can start immediately once Phase 2 gate passes
+  - B2, C1 can run in parallel once B1 delivers recon_report.md
+  - C2 runs after B2 and C1 produce findings
+  - A2 runs after A1 + at least one agent stream completes
 ```
 
 ---
 
 ## Notes
 
-- This is the highest-risk phase. If `runAgent()` has issues, it blocks everything.
-- E2 and E3 should test agents individually (standalone calls to `runAgent()`) while E1 builds the pipeline
+- **Highest-risk phase.** If `runAgent()` has issues, it blocks everything. B1/C1 should test standalone before the pipeline is wired.
 - Focus on getting any output first, then quality. A rough recon report is better than a perfect prompt that hasn't been tested.
-- If the exploit agents fail to find vulnerabilities, don't block — the analysis agents producing reasonable hypotheses is sufficient for this gate
-- `try/catch` at the phase level is critical: a crash in Phase 2 exploit should not prevent Phase 3 report from running with whatever data is available
+- If exploit agents fail to find vulnerabilities, don't block — reasonable hypotheses are sufficient for this gate.
+- `try/catch` at the phase level is critical: a crash in exploitation must not prevent the report phase from running with whatever data is available.
