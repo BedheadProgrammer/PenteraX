@@ -2,18 +2,18 @@
 
 **Hours:** 0–2  
 **Objective:** Project scaffolded, target environment running, development tools installed, research complete.  
-**Status:** Not Started
+**Status:** ✅ Complete
 
 ---
 
 ## Gate Criteria (all must pass to advance to Phase 2)
 
-- [ ] `npm install` succeeds without errors
-- [ ] `npx tsc --noEmit` succeeds (TypeScript compiles)
+- [x] `npm install` succeeds without errors
+- [x] `npx tsc --noEmit` succeeds (TypeScript compiles)
 - [x] OWASP Juice Shop accessible at `http://54.146.141.88:3000`
 - [x] Juice Shop source code cloned into `repos/juice-shop/`
 - [x] External tools available: `nmap`, `whatweb`, `sqlmap`, `curl`
-- [ ] `.env` file created with valid `ANTHROPIC_API_KEY`
+- [x] `.env` file created with valid `ANTHROPIC_API_KEY`
 - [x] XSS vulnerability research documented (E3 has attack surface knowledge)
 
 ---
@@ -24,13 +24,13 @@
 
 > **Files created/modified:** `package.json`, `tsconfig.json`, `.env`, `.gitignore`, `src/` directory structure
 
-- [ ] Run `npm init -y` to create `package.json`
-- [ ] Install production dependencies: `@anthropic-ai/claude-agent-sdk`
-- [ ] Install dev dependencies: `typescript`, `ts-node`, `@types/node`
-- [ ] Create `tsconfig.json` with strict mode, ES2022 target, Node module resolution
-- [ ] Create `.env` with `ANTHROPIC_API_KEY=<key>`
-- [ ] Create `.gitignore` (include `node_modules/`, `.env`, `deliverables/`, `repos/`)
-- [ ] Create directory structure:
+- [x] Run `npm init -y` to create `package.json`
+- [x] Install production dependencies: `@anthropic-ai/sdk`
+- [x] Install dev dependencies: `typescript`, `ts-node`, `@types/node`
+- [x] Create `tsconfig.json` with strict mode, ES2022 target, Node module resolution
+- [x] Create `.env` with `ANTHROPIC_API_KEY=<key>`
+- [x] Create `.gitignore` (include `node_modules/`, `.env`, `deliverables/`, `repos/`)
+- [x] Create directory structure:
   ```
   src/
   src/prompts/
@@ -38,8 +38,8 @@
   deliverables/
   repos/
   ```
-- [ ] Create placeholder `src/types.ts` with shared type definitions
-- [ ] Verify `npx tsc --noEmit` passes
+- [x] Create placeholder `src/types.ts` with shared type definitions
+- [x] Verify `npx tsc --noEmit` passes
 
 ### Stream B — Target Environment & Tools [E2: Injection]
 
