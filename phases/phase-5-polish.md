@@ -6,9 +6,28 @@
 
 ---
 
+## Priority Analysis
+
+> **Stream B (Attack Coverage Hardening) is the HIGHEST priority** in this phase.
+> It directly enhances attack coverage by adding an authentication vulnerability
+> class and hardening existing injection detection — these are the changes that
+> produce the most meaningful improvement to the pipeline's pentest capabilities.
+>
+> **Stream A (Console Output & CLI Polish) is the LOWEST priority.** The `--replay`
+> flag and `--verbose` support are already implemented. Remaining Stream A items
+> (colored console output, README polish, time profiling) are cosmetic and do not
+> improve attack coverage. They should be deferred until all Stream B items are
+> complete.
+>
+> **Stream C (Demo Materials)** is medium priority — needed for demo but does not
+> affect attack coverage.
+
+---
+
 ## Gate Criteria (all must pass to advance to Phase 6)
 
 - [ ] Full pipeline run completes in < 10 minutes
+- [ ] Auth vertical agents wired into pipeline and producing deliverables
 - [ ] Console output clearly shows progress (phase/agent name, status, timing)
 - [ ] `README.md` exists with setup instructions, usage, and architecture overview
 - [ ] Demo script written and tested (10-minute walkthrough)
@@ -18,55 +37,26 @@
 
 ---
 
-## Work Streams (all parallel — separate deliverables)
+## Work Streams (ordered by attack coverage impact)
 
-### Stream A — Console Output & CLI Polish [E1: Infrastructure]
+### Stream B — Auth Vertical & Hardening [E2: Injection] ⭐ HIGHEST PRIORITY
 
-> **Files modified:** `src/cli.py`, `src/pipeline.py`, `src/agent_runner.py`, `README.md`
+> **Files modified:** `src/prompts/analysis-auth.md` (NEW), `src/prompts/exploit-auth.md` (NEW),
+> `src/pipeline.py`, `src/prompts/` (injection-related)
 >
-> **Note:** The project is implemented in **Python** (`src/cli.py`, `src/pipeline.py`,
-> `src/agent_runner.py`).  Playwright runs in-process via `playwright.sync_api` — there
-> is no Node.js MCP subprocess.
+> **Rationale:** This stream adds an entirely new vulnerability class (authentication
+> bypass) and hardens the existing injection detection. These changes produce the
+> most enhanced attack coverage of any work in Phase 5.
 
-- [ ] Add colored console output:
-  - [ ] Phase headers with color (e.g., blue for phase name)
-  - [ ] Agent start/complete indicators (green for success, red for failure)
-  - [ ] Timing per agent and per phase
-  - [ ] Pipeline summary at end (total time, cost, findings count)
-- [ ] Add `--replay` fallback flag to `cli.py`:
-  - [ ] When passed, copy pre-computed `deliverables/` files instead of running agents
-  - [ ] Useful for live demo fallback if agents fail
-  - [ ] Store backup deliverables in `deliverables/replay/` from a successful run
-- [ ] Write `README.md`:
-  - [ ] Project overview and architecture
-  - [ ] Prerequisites (Python 3.11+, Playwright Chromium, API key, external tools)
-  - [ ] Setup instructions (step-by-step):
-    - `python -m venv .venv && .venv\Scripts\activate`
-    - `pip install -e .`
-    - `playwright install chromium`
-  - [ ] Usage: `python -m src --cli pipeline --target-url http://54.146.141.88:3000`
-  - [ ] Available flags (`--verbose`, `--replay`)
-  - [ ] Architecture diagram reference
-  - [ ] Cost and timing expectations
-- [ ] Time optimization:
-  - [ ] Profile full run — identify slowest agents
-  - [ ] Reduce `maxTurns` further if agents consistently finish early
-  - [ ] Verify total time < 10 minutes for demo
-
-### Stream B — Stretch Features / Hardening [E2: Injection]
-
-> **Files modified:** `src/prompts/` (injection-related only), potentially new auth prompt files
->
-> ⚠️ **Option A (Auth Vertical) requires E1 coordination:** Adding auth agents requires changes to `pipeline.py` and potentially `cli.py`. Coordinate with E1 before starting. E2 writes prompts; E1 wires them into the pipeline.
-
-- [ ] **Option A — Auth Vertical (STRETCH):** Add authentication vulnerability class
-  - [ ] Coordinate with E1 — confirm pipeline can accept additional agents
-  - [ ] Write `src/prompts/analysis-auth.md`
-  - [ ] Write `src/prompts/exploit-auth.md`
-  - [ ] Target: Juice Shop admin login SQL injection (`' OR 1=1--` at `POST /rest/user/login`)
-  - [ ] E1 wires auth agents into pipeline (`pipeline.py` Phase 1 and Phase 2)
+- [x] **Option A — Auth Vertical:** Add authentication vulnerability class
+  - [x] Write `src/prompts/analysis-auth.md` — authentication-focused analysis prompt
+  - [x] Write `src/prompts/exploit-auth.md` — authentication-focused exploit prompt
+  - [x] Target: Juice Shop admin login SQL injection, JWT manipulation, default credentials, password reset flaws
+  - [x] Wire auth agents into pipeline (`pipeline.py` Phase 1 and Phase 2) as 3rd parallel track
+  - [x] Update report phase to aggregate auth findings alongside injection and XSS
+  - [x] Update `_PHASE_META` and `_REPLAY_FILES` for auth deliverables
   - [ ] Test 3 runs for reliability
-- [ ] **Option B — Injection Hardening (if Auth is too risky):**
+- [ ] **Option B — Injection Hardening:**
   - [ ] Test against multiple injection types (not just product search)
   - [ ] Add error-based log in SQL injection as secondary target
   - [ ] Improve evidence quality (cleaner HTTP response captures)
@@ -82,14 +72,14 @@
   - [ ] **Minute 0-1:** Show Juice Shop running at `http://54.146.141.88:3000`, project structure overview
   - [ ] **Minute 1-2:** Launch pipeline: `python -m src --cli pipeline --target-url http://54.146.141.88:3000`
   - [ ] **Minute 2-4:** Narrate Phase 0 Recon (source code reading, nmap)
-  - [ ] **Minute 4-5:** Narrate Phase 1 Analysis (hypothesis generation)
+  - [ ] **Minute 4-5:** Narrate Phase 1 Analysis (hypothesis generation — injection, XSS, AND auth)
   - [ ] **Minute 5-8:** Narrate Phase 2 Exploitation (THE MONEY SHOT — Playwright browser automation live)
-  - [ ] **Minute 8-9:** Show Phase 3 Report output
+  - [ ] **Minute 8-9:** Show Phase 3 Report output (now includes auth findings)
   - [ ] **Minute 9-10:** Architecture overview, cost breakdown, future roadmap
   - [ ] Include contingency talking points for slow/failed agents
 - [ ] Create architecture diagram:
   - [ ] 4-phase pipeline visualization (Python `ThreadPoolExecutor` parallelism)
-  - [ ] Agent flow with deliverable handoff
+  - [ ] Agent flow with deliverable handoff (now includes auth track)
   - [ ] Technology stack: Python 3.11+, Anthropic Claude API, Playwright (in-process `sync_api`), nmap, sqlmap
   - [ ] Playwright integration: singleton `PlaywrightManager`, `RLock` thread-safety, `wait_until="load"` default
 - [ ] Test full demo flow end-to-end:
@@ -101,23 +91,49 @@
   - [ ] Copy all deliverables to `deliverables-backup/`
   - [ ] Verify `--replay` produces the same output (replay deliverables stored in `deliverables/replay/`)
 
+### Stream A — Console Output & CLI Polish [E1: Infrastructure] ⬇️ LOWEST PRIORITY
+
+> **Files modified:** `src/cli.py`, `src/pipeline.py`, `src/agent_runner.py`, `README.md`
+>
+> **Note:** The `--replay` flag and `--verbose` support are already implemented.
+> Remaining items are cosmetic polish that does NOT enhance attack coverage.
+> Defer these until Stream B is complete and verified.
+
+- [ ] Add colored console output:
+  - [ ] Phase headers with color (e.g., blue for phase name)
+  - [ ] Agent start/complete indicators (green for success, red for failure)
+  - [ ] Timing per agent and per phase
+  - [ ] Pipeline summary at end (total time, cost, findings count)
+- [x] ~~Add `--replay` fallback flag to `cli.py`~~ (already implemented)
+- [ ] Write `README.md`:
+  - [ ] Project overview and architecture
+  - [ ] Prerequisites (Python 3.11+, Playwright Chromium, API key, external tools)
+  - [ ] Setup instructions (step-by-step)
+  - [ ] Usage and available flags
+  - [ ] Architecture diagram reference
+  - [ ] Cost and timing expectations
+- [ ] Time optimization:
+  - [ ] Profile full run — identify slowest agents
+  - [ ] Reduce `maxTurns` further if agents consistently finish early
+  - [ ] Verify total time < 10 minutes for demo
+
 ---
 
 ## Dependencies Between Streams
 
 ```
-Stream A (console polish + README) ── independent
-Stream B (stretch features) ── independent (touches different prompt files)
-Stream C (demo materials) ── depends on Stream A (needs final CLI behavior for demo script)
-                           — depends on a successful pipeline run (for backup deliverables in deliverables/replay/)
+Stream B (auth vertical + hardening) ── HIGHEST PRIORITY — independent, start immediately
+Stream C (demo materials) ── depends on Stream B completion (demo script must show auth findings)
+                           — depends on a successful pipeline run (for backup deliverables)
+Stream A (console polish + README) ── LOWEST PRIORITY — independent, defer until B complete
 ```
 
 ---
 
 ## Notes
 
-- **Do not introduce risky changes at this stage.** Stretch features (Auth vertical) should only be attempted if the core pipeline is rock-solid.
-- The `--replay` flag is a critical safety net — prioritize it early in this phase
-- Backup deliverables should be generated from the best run during Phase 4 iteration
-- If time is tight, skip colored console output and focus on demo script + README
-- Architecture diagram can be hand-drawn or generated with a tool like Mermaid/draw.io
+- **Stream B is the critical path.** The auth vertical adds a third vulnerability class to the pipeline, significantly increasing attack coverage.
+- Stream A items (colored output, README) are nice-to-have but do not affect attack coverage — skip if time is tight.
+- The `--replay` flag is already implemented — no additional work needed.
+- Backup deliverables should be generated from the best run during Phase 4 iteration.
+- Architecture diagram can be hand-drawn or generated with a tool like Mermaid/draw.io.

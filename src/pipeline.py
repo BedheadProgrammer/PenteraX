@@ -535,13 +535,13 @@ def run_phase_analysis(
     agent_runner: Callable[..., str] | None = None,
     stop_event: threading.Event | None = None,
 ) -> PhaseResult:
-    """Phase 1: Analysis (injection + XSS).
+    """Phase 1: Analysis (injection + XSS + auth).
 
     - Reads recon_report.md
     - Runs vulnerability lookups to enrich with CVE data
-    - Produces hypotheses_injection.md and hypotheses_xss.md
+    - Produces hypotheses_injection.md, hypotheses_xss.md, and hypotheses_auth.md
 
-    Injection and XSS analyses run **in parallel** via ThreadPoolExecutor
+    Injection, XSS, and auth analyses run **in parallel** via ThreadPoolExecutor
     (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
     file so there is no file contention (Race condition #5).
     """
@@ -573,13 +573,14 @@ def run_phase_analysis(
         "TARGET_URL": config.target_url,
     }
 
-    # Run injection + XSS analysis in parallel
+    # Run injection + XSS + auth analysis in parallel
     sub_phases = [
         ("injection", "analysis-injection.md", "hypotheses_injection.md", "hypotheses"),
         ("xss", "analysis-xss.md", "hypotheses_xss.md", "hypotheses"),
+        ("auth", "analysis-auth.md", "hypotheses_auth.md", "hypotheses"),
     ]
 
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="analysis") as pool:
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="analysis") as pool:
         futures = {
             pool.submit(
                 _run_single_analysis,
@@ -691,9 +692,9 @@ def run_phase_exploit(
     """Phase 2: Exploitation.
 
     - Reads hypothesis files
-    - Produces findings_injection.md and findings_xss.md
+    - Produces findings_injection.md, findings_xss.md, and findings_auth.md
 
-    Injection and XSS exploits run **in parallel** via ThreadPoolExecutor
+    Injection, XSS, and auth exploits run **in parallel** via ThreadPoolExecutor
     (Phase 4 — Step 4.1).  Each sub-phase writes to a distinct deliverable
     file so there is no file contention (Race condition #5).
     """
@@ -704,9 +705,10 @@ def run_phase_exploit(
     sub_phases = [
         ("injection", "exploit-injection.md", "hypotheses_injection.md", "findings_injection.md"),
         ("xss", "exploit-xss.md", "hypotheses_xss.md", "findings_xss.md"),
+        ("auth", "exploit-auth.md", "hypotheses_auth.md", "findings_auth.md"),
     ]
 
-    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="exploit") as pool:
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="exploit") as pool:
         futures = {
             pool.submit(
                 _run_single_exploit,
@@ -754,7 +756,7 @@ def run_phase_report(
 
     # Gather all findings
     findings_parts = []
-    for name in ["findings_injection.md", "findings_xss.md"]:
+    for name in ["findings_injection.md", "findings_xss.md", "findings_auth.md"]:
         content = read_deliverable(name, config.output_dir)
         if content:
             findings_parts.append(f"# {name}\n\n{content}")
@@ -823,8 +825,10 @@ _REPLAY_FILES = [
     "recon_report.md",
     "hypotheses_injection.md",
     "hypotheses_xss.md",
+    "hypotheses_auth.md",
     "findings_injection.md",
     "findings_xss.md",
+    "findings_auth.md",
     "pentest_report.md",
 ]
 
@@ -879,12 +883,12 @@ _PHASE_META: dict[str, dict[str, Any]] = {
         "expected_deliverables": ["recon_report.md"],
     },
     "analysis": {
-        "agent_name": "analysis-agent (injection + xss)",
-        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md"],
+        "agent_name": "analysis-agent (injection + xss + auth)",
+        "expected_deliverables": ["hypotheses_injection.md", "hypotheses_xss.md", "hypotheses_auth.md"],
     },
     "exploit": {
-        "agent_name": "exploit-agent (injection + xss)",
-        "expected_deliverables": ["findings_injection.md", "findings_xss.md"],
+        "agent_name": "exploit-agent (injection + xss + auth)",
+        "expected_deliverables": ["findings_injection.md", "findings_xss.md", "findings_auth.md"],
     },
     "report": {
         "agent_name": "report-agent",
