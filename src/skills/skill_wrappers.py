@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -198,30 +200,47 @@ def batch_lookup_cve(
     Args:
         registry: The loaded SkillRegistry.
         tech_stack: List of dicts with ``product`` and ``version`` keys.
-        batch_file_path: Where to write the temp batch JSON. If None, uses
-                         a temp file under the project deliverables/ dir.
+        batch_file_path: Where to write the temp batch JSON. If None, a
+                         unique temporary file is created under the project
+                         deliverables/ dir (Race condition #7 fix).
 
     Returns:
         SkillResult whose ``output`` is a list of lookup results.
     """
     from .skill_loader import PROJECT_ROOT
 
+    cleanup_temp = False
     if batch_file_path is None:
         deliverables = PROJECT_ROOT / "deliverables"
         deliverables.mkdir(exist_ok=True)
-        batch_file_path = deliverables / "_tech_stack_batch.json"
+        fd, batch_file_path = tempfile.mkstemp(
+            suffix="_tech_stack_batch.json",
+            dir=str(deliverables),
+        )
+        os.close(fd)
+        cleanup_temp = True
 
-    Path(batch_file_path).write_text(
-        json.dumps(tech_stack, indent=2),
-        encoding="utf-8",
-    )
+    try:
+        Path(batch_file_path).write_text(
+            json.dumps(tech_stack, indent=2),
+            encoding="utf-8",
+        )
 
-    return registry.run(
-        "vulnerability-lookup",
-        "lookup_cve.py",
-        args=["--batch-file", str(batch_file_path)],
-        timeout=120,  # Batch lookups have rate-limit sleeps
-    )
+        result = registry.run(
+            "vulnerability-lookup",
+            "lookup_cve.py",
+            args=["--batch-file", str(batch_file_path)],
+            timeout=120,  # Batch lookups have rate-limit sleeps
+        )
+    finally:
+        # Clean up the temp file we created
+        if cleanup_temp:
+            try:
+                os.unlink(batch_file_path)
+            except OSError:
+                pass
+
+    return result
 
 
 def format_known_vulns_for_prompt(lookup_results: list[dict]) -> str:

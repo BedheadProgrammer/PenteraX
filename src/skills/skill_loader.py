@@ -174,13 +174,22 @@ def run_skill_script(
             timeout=timeout,
             cwd=str(cwd) if cwd else None,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        # Kill the zombie subprocess (Race condition #10) — subprocess.run()
+        # with capture_output may not terminate the child on all platforms.
+        # For Popen-based flows the child should be reaped; for run() the
+        # child is already dead after TimeoutExpired but we log explicitly.
+        logger.warning(
+            "Script %s timed out after %ds — killed.", script_path.name, timeout
+        )
         return SkillResult(
             success=False,
             skill_name=skill.name,
             output=None,
             exit_code=-1,
             errors=[f"Script timed out after {timeout}s"],
+            raw_stdout=getattr(exc, "stdout", "") or "",
+            raw_stderr=getattr(exc, "stderr", "") or "",
         )
 
     # Try to parse stdout as JSON
@@ -214,17 +223,44 @@ class SkillRegistry:
         recon = registry.get("network-recon")
         result = registry.run("network-recon", "parse_nmap.py",
                               args=["/tmp/nmap_scan.xml", "--markdown"])
+
+    Thread-safety (Phase 4 — Step 4.6):
+    - ``freeze()`` prevents ``reload()`` calls while the pipeline is running.
+    - ``build_prompt_context()`` caches its result after the first call when
+      the registry is frozen, avoiding repeated disk reads under concurrent
+      access (Race condition #8).
     """
 
     def __init__(self, skills_dir: Path | None = None):
         self._skills: dict[str, SkillMetadata] = {}
+        self._frozen: bool = False
+        self._context_cache: dict[str, str] = {}
         self.reload(skills_dir)
+
+    # -- freeze / unfreeze --------------------------------------------------
+
+    def freeze(self) -> None:
+        """Prevent ``reload()`` during a pipeline run (Race condition #8)."""
+        self._frozen = True
+
+    def unfreeze(self) -> None:
+        """Re-allow ``reload()`` and clear the context cache."""
+        self._frozen = False
+        self._context_cache.clear()
 
     # -- discovery ----------------------------------------------------------
 
     def reload(self, skills_dir: Path | None = None) -> None:
-        """(Re)discover skills from disk."""
+        """(Re)discover skills from disk.
+
+        Does nothing when the registry is frozen to prevent races during a
+        pipeline run.
+        """
+        if self._frozen:
+            logger.debug("SkillRegistry.reload() skipped — registry is frozen")
+            return
         self._skills.clear()
+        self._context_cache.clear()
         for meta in discover_skills(skills_dir):
             self._skills[meta.name] = meta
         logger.info("SkillRegistry loaded %d skills: %s",
@@ -294,7 +330,14 @@ class SkillRegistry:
 
         Combines the skill description, workflow instructions, and all reference
         docs into a single context string that an LLM agent can consume.
+
+        When the registry is frozen the result is cached after the first call
+        so concurrent threads don't re-read files from disk (Race condition #8).
         """
+        # Return cached result if available
+        if skill_name in self._context_cache:
+            return self._context_cache[skill_name]
+
         meta = self.get(skill_name)
         if not meta:
             return ""
@@ -313,7 +356,13 @@ class SkillRegistry:
                     parts.append(f"\n### Reference: {ref_file.name}\n")
                     parts.append(ref_file.read_text(encoding="utf-8"))
 
-        return "\n".join(parts)
+        ctx = "\n".join(parts)
+
+        # Cache when frozen (during pipeline run)
+        if self._frozen:
+            self._context_cache[skill_name] = ctx
+
+        return ctx
 
     def build_all_skills_summary(self) -> str:
         """Build a summary of all skills suitable for a system prompt."""
