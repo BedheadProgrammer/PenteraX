@@ -173,7 +173,7 @@ Cross-referencing against the 15 identified race conditions in `GUI_AWS_PLAN.md`
 | #7 Batch temp file | No change — pre-collection doesn't use `batch_lookup_cve` temp files | ✅ Safe |
 | #8 Skills dir modification | No change — pre-collection reads repo files, not skills/ | ✅ Safe |
 | #9 Windows `os.replace()` | No change — pre-collection doesn't write deliverable files | ✅ Safe |
-| #10 Zombie nmap subprocess | **New risk** — if pre-collection runs nmap via `subprocess.run()`, timeout handling must include `proc.kill()` | ⚠️ **Addressed by using `subprocess.run(timeout=...)` which auto-kills** |
+| #10 Zombie nmap subprocess | **New risk** — if pre-collection runs nmap via `subprocess.run()`, timeout handling must include explicit cleanup | ⚠️ **Requires `try/except TimeoutExpired` with explicit `proc.kill()` — see requirement #4 below** |
 | #11 CVE cache parallel access | No change | ✅ Safe |
 | #12 AWS SG dropping nmap | Same risk as before — pre-collection must use `-Pn --host-timeout 120s` | ✅ Same mitigation applies |
 | #13 Claude API failures | No change — pre-collection doesn't call Claude API | ✅ Safe |
@@ -235,9 +235,12 @@ state.
 3. **Prompt size management** — monitor total prompt size after variable injection.
    Consider injecting source analysis results with a configurable line limit (e.g.,
    first 60 matches per pattern category) to prevent context window overflow.
-4. **Nmap subprocess timeout** — use `subprocess.run(timeout=180)` with proper cleanup.
-   The existing `run_skill_script()` pattern in `skill_loader.py` already handles this
-   correctly.
+4. **Nmap subprocess timeout** — use `subprocess.run(timeout=180)` with explicit
+   `try/except subprocess.TimeoutExpired` cleanup that calls `proc.kill()`.
+   Note: `subprocess.run()` raises `TimeoutExpired` but does **not** automatically
+   terminate the child process on all platforms — explicit kill is required. The
+   existing `run_skill_script()` in `skill_loader.py` already handles this correctly
+   and serves as the reference pattern.
 5. **No new shared mutable state** — pre-collection functions should be pure: take
    config in, return strings out. Do not write to shared files or modify registry state.
 
