@@ -288,35 +288,6 @@ MCP_TOOLS: list[dict[str, Any]] = [
                     "description": "Timeout in seconds (default: 30).",
                     "default": 30,
                 },
-                "file_upload": {
-                    "type": "object",
-                    "description": (
-                        "For multipart/form-data file upload. Provide field name, "
-                        "filename, content (string), and content_type. When set, "
-                        "the request is sent as multipart/form-data instead of raw body. "
-                        "Example: {\"field\": \"file\", \"filename\": \"evil.xml\", "
-                        "\"content\": \"<?xml ...>\", \"content_type\": \"application/xml\"}"
-                    ),
-                    "properties": {
-                        "field": {
-                            "type": "string",
-                            "description": "Form field name (default: file).",
-                        },
-                        "filename": {
-                            "type": "string",
-                            "description": "Upload filename.",
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "File content as a string.",
-                        },
-                        "content_type": {
-                            "type": "string",
-                            "description": "MIME type (default: application/octet-stream).",
-                        },
-                    },
-                    "required": ["field", "filename", "content"],
-                },
             },
             "required": ["url"],
         },
@@ -529,32 +500,6 @@ MCP_TOOLS: list[dict[str, Any]] = [
             "required": ["key"],
         },
     },
-    {
-        "name": "check_challenge_status",
-        "description": (
-            "Check the Juice Shop scoreboard to see which challenges are solved. "
-            "Call this AFTER each exploit attempt to verify the challenge was "
-            "actually completed. Returns solved/unsolved status. Optionally filter "
-            "by challenge name substring."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "target_url": {
-                    "type": "string",
-                    "description": "Juice Shop base URL (e.g. http://host:3000).",
-                },
-                "challenge_name": {
-                    "type": "string",
-                    "description": (
-                        "Optional: substring to filter challenges by name "
-                        "(e.g. 'XSS', 'Login', 'Admin'). Omit to get full summary."
-                    ),
-                },
-            },
-            "required": ["target_url"],
-        },
-    },
 ]
 
 
@@ -606,8 +551,6 @@ class SkillToolDispatcher:
         # Artifact store tools are always available
         self._handlers["store_artifact"] = self._handle_store_artifact
         self._handlers["get_artifact"] = self._handle_get_artifact
-        # Challenge verification tool
-        self._handlers["check_challenge_status"] = self._handle_check_challenge_status
 
     @property
     def tool_names(self) -> list[str]:
@@ -743,7 +686,6 @@ class SkillToolDispatcher:
         headers: dict[str, str] | None = None,
         body: str | None = None,
         timeout: int = 30,
-        file_upload: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         result = run_http_request(
             url=url,
@@ -751,7 +693,6 @@ class SkillToolDispatcher:
             headers=headers,
             body=body,
             timeout=timeout,
-            file_upload=file_upload,
         )
         return self._skill_result_to_dict(result)
 
@@ -823,64 +764,6 @@ class SkillToolDispatcher:
             "key": key,
             "value": value,
         }
-
-    def _handle_check_challenge_status(
-        self,
-        target_url: str,
-        challenge_name: str = "",
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """Query /api/Challenges to see solved status."""
-        import json as _json
-
-        result = run_http_request(
-            url=f"{target_url.rstrip('/')}/api/Challenges/",
-            method="GET",
-            timeout=10,
-        )
-        if not result.success:
-            return {"success": False, "error": result.errors}
-
-        try:
-            body = result.output.get("body", "") if isinstance(result.output, dict) else str(result.output)
-            data = _json.loads(body) if isinstance(body, str) else body
-            challenges = data.get("data", [])
-
-            if challenge_name:
-                matches = [
-                    c for c in challenges
-                    if challenge_name.lower() in c.get("name", "").lower()
-                    or challenge_name.lower() in c.get("category", "").lower()
-                ]
-                return {
-                    "success": True,
-                    "filter": challenge_name,
-                    "matches": [
-                        {
-                            "name": c["name"],
-                            "solved": c.get("solved", False),
-                            "difficulty": c.get("difficulty"),
-                            "category": c.get("category", ""),
-                        }
-                        for c in matches
-                    ],
-                    "matched_count": len(matches),
-                }
-
-            solved = [c for c in challenges if c.get("solved")]
-            unsolved = [c for c in challenges if not c.get("solved")]
-            return {
-                "success": True,
-                "total_challenges": len(challenges),
-                "solved_count": len(solved),
-                "unsolved_count": len(unsolved),
-                "solved": [
-                    {"name": c["name"], "difficulty": c.get("difficulty")}
-                    for c in solved
-                ],
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
 
     @staticmethod
     def _skill_result_to_dict(result: SkillResult) -> dict[str, Any]:

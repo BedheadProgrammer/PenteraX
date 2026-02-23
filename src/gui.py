@@ -336,7 +336,7 @@ class PenteraXApp(ctk.CTk):
         if self._replay_var.get():
             self._mode_label.configure(text="MODE: [REPLAY]", text_color="orange")
         else:
-            self._mode_label.configure(text="MODE: LIVE", text_color=None)
+            self._mode_label.configure(text="MODE: LIVE", text_color=("gray10", "gray90"))
 
     # ---------- Preflight -------------------------------------------------
 
@@ -397,7 +397,7 @@ class PenteraXApp(ctk.CTk):
         for name in _PHASE_NAMES:
             self._phase_labels[name].configure(
                 text=f"  —  {name.capitalize():15s}  waiting",
-                text_color=None,
+                text_color=("gray10", "gray90"),
             )
 
         if replay:
